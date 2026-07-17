@@ -229,7 +229,7 @@ class SearchApiClient(
                         appSettings.timeouts
                     )
 
-                                val requestCall = client.newCall(
+                val requestCall = client.newCall(
                     requestBuilder.build()
                 )
 
