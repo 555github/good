@@ -3482,15 +3482,14 @@ fun SearchProfilesDialog(
         SearchProfileEditor(
             profile = null,
             onSave = { profile, key ->
-                viewModel
-                    .createSearchProfile(
-                        name = profile.name,
-                        baseUrl =
-                            profile.baseUrl,
-                        path = profile.path,
-                        apiKey =
-                            key.orEmpty()
-                    )
+                /*
+                 * 保存完整搜索配置，保留请求字段、
+                 * 响应字段路径、认证方式和附加 JSON。
+                 */
+                viewModel.saveSearchProfile(
+                    profile = profile,
+                    newApiKey = key
+                )
 
                 creating = false
             },
