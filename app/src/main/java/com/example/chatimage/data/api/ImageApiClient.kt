@@ -3,7 +3,9 @@ package com.example.chatimage.data.api
 import android.content.Context
 import com.example.chatimage.data.model.AppSettings
 import com.example.chatimage.data.model.ImageEditTransport
+import com.example.chatimage.data.model.ImageParameterSettings
 import com.example.chatimage.data.model.RequestDiagnostics
+import com.example.chatimage.data.model.RequestError
 import com.example.chatimage.data.repository.ResolvedApiProfile
 import com.example.chatimage.util.ErrorParser
 import com.example.chatimage.util.HeaderUtils
@@ -24,7 +26,7 @@ import okhttp3.Request
 import okhttp3.RequestBody
 import okhttp3.RequestBody.Companion.asRequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
-import org.json.JSONArray
+import okhttp3.Response
 import org.json.JSONObject
 
 class ImageApiClient(
@@ -37,295 +39,260 @@ class ImageApiClient(
         resolvedProfile: ResolvedApiProfile,
         appSettings: AppSettings,
         options: ImageRequestOptions
-    ): ApiOutcome<ImageGenerationResult> =
-        withContext(Dispatchers.IO) {
-            val profile =
-                resolvedProfile.profile
+    ): ApiOutcome<ImageGenerationResult> {
+        return withContext(Dispatchers.IO) {
+            executeRequest(
+                resolvedProfile = resolvedProfile,
+                appSettings = appSettings,
+                options = options
+            )
+        }
+    }
 
-            val settings =
-                appSettings.imageParameters
+    private fun executeRequest(
+        resolvedProfile: ResolvedApiProfile,
+        appSettings: AppSettings,
+        options: ImageRequestOptions
+    ): ApiOutcome<ImageGenerationResult> {
+        val profile = resolvedProfile.profile
+        val parameters = appSettings.imageParameters
 
-            val isEdit =
-                !options.sourceImagePath
-                    .isNullOrBlank()
+        val isEdit = !options.sourceImagePath
+            .isNullOrBlank()
 
-            val endpoint =
-                UrlUtils.resolveEndpoint(
-                    profile.baseUrl,
-                    if (isEdit) {
-                        profile.imageEditPath
-                    } else {
-                        profile
-                            .imageGenerationPath
-                    }
-                )
+        val endpoint = UrlUtils.resolveEndpoint(
+            profile.baseUrl,
+            if (isEdit) {
+                profile.imageEditPath
+            } else {
+                profile.imageGenerationPath
+            }
+        )
 
-            val startedAt =
-                System.currentTimeMillis()
+        val startedAt = System.currentTimeMillis()
 
-            var call: Call? = null
+        var activeCall: Call? = null
 
-            try {
-                val body = if (!isEdit) {
-                    buildGenerationBody(
-                        settings = settings,
-                        options = options
-                    )
-                } else {
-                    val sourceFile = File(
-                        options.sourceImagePath
-                            ?: throw
-                                IllegalStateException(
-                                    "图生图缺少源图片"
-                                )
-                    )
-
-                    if (!sourceFile.exists()) {
-                        throw IllegalStateException(
-                            "图生图源图片文件不存在"
+        try {
+            val requestBody = if (isEdit) {
+                val sourceFile = File(
+                    options.sourceImagePath
+                        ?: throw IllegalStateException(
+                            "图生图缺少源图片"
                         )
-                    }
+                )
 
-                    buildEditBody(
-                        settings = settings,
-                        options = options,
-                        sourceFile = sourceFile
+                if (!sourceFile.exists()) {
+                    throw IllegalStateException(
+                        "图生图源图片文件不存在"
                     )
                 }
 
-                val builder = Request.Builder()
-                    .url(endpoint)
-                    .header(
-                        "Accept",
-                        "application/json"
-                    )
-                    .post(body)
-
-                HeaderUtils.applyAuthentication(
-                    builder = builder,
-                    mode = profile
-                        .authenticationMode,
-                    apiKey = resolvedProfile.apiKey,
-                    headerName = profile
-                        .authorizationHeaderName,
-                    prefix = profile
-                        .authorizationPrefix
+                buildEditBody(
+                    settings = parameters,
+                    options = options,
+                    sourceFile = sourceFile
                 )
-
-                HeaderUtils.applyCustomHeaders(
-                    builder = builder,
-                    entries = HeaderUtils.decode(
-                        profile.customHeadersJson
-                    ),
-                    category =
-                        RequestCategory.IMAGE
-                )
-
-                val client =
-                    clientFactory.imageClient(
-                        appSettings.timeouts
-                    )
-
-                val requestCall = client.newCall(
-                    builder.build()
-                )
-
-                call = requestCall
-
-                val cancellationHandle =
-                    coroutineContext.job
-                        .invokeOnCompletion { cause ->
-                            if (
-                                cause is
-                                CancellationException
-                            ) {
-                                requestCall.cancel()
-                            }
-                        }
-
-                try {
-                    requestCall.execute().use {
-
-
-                        response ->
-                        val responseText =
-                            response.body
-                                ?.string()
-                                .orEmpty()
-
-                        val duration =
-                            System.currentTimeMillis() -
-                                startedAt
-
-                        if (!response.isSuccessful) {
-                            val parsed =
-                                ErrorParser
-                                    .fromHttpResponse(
-                                        response = response,
-                                        body =
-                                            responseText,
-                                        endpoint = endpoint,
-                                        model =
-                                            options.model,
-                                        durationMs =
-                                            duration,
-                                        requestIdHeaderNames =
-                                            appSettings
-                                                .diagnostics
-                                                .requestIdHeaderNames
-                                    )
-
-                            return@withContext
-                                ApiOutcome.Failure(
-                                    error = parsed.first,
-                                    diagnostics =
-                                        parsed.second
-                                )
-                        }
-
-                        val images =
-                            parseAndSaveImages(
-                                responseText =
-                                    responseText,
-                                resolvedProfile =
-                                    resolvedProfile,
-                                appSettings =
-                                    appSettings
-                            )
-
-                        if (images.isEmpty()) {
-                            val diagnostics =
-                                diagnostics(
-                                    response,
-                                    endpoint,
-                                    options.model,
-                                    duration
-                                )
-
-                            return@withContext
-                                ApiOutcome.Failure(
-                                    error =
-                                        com.example
-                                            .chatimage
-                                            .data
-                                            .model
-                                            .RequestError(
-                                                code =
-                                                    "NO_IMAGE_DATA",
-                                                message =
-                                                    "图片接口返回成功，但没有按当前字段路径解析到图片。请检查图片数组路径、URL 字段和 Base64 字段设置。",
-                                                httpStatus =
-                                                    response.code,
-                                                requestId =
-                                                    diagnostics
-                                                        .requestId,
-                                                durationMs =
-                                                    duration,
-                                                retryable =
-                                                    false,
-                                                rawBodyPreview =
-                                                    responseText
-                                                        .take(
-                                                            2000
-                                                        )
-                                            ),
-                                    diagnostics =
-                                        diagnostics
-                                )
-                        }
-
-                        val root = try {
-                            JSONObject(responseText)
-                        } catch (_: Exception) {
-                            JSONObject()
-                        }
-
-                        val revisedPrompt =
-                            JsonUtils.readString(
-                                root,
-                                "data[0].revised_prompt"
-                            )
-
-                        return@withContext
-                            ApiOutcome.Success(
-                                value =
-                                    ImageGenerationResult(
-                                        images = images,
-                                        revisedPrompt =
-                                            revisedPrompt
-                                    ),
-                                diagnostics =
-                                    diagnostics(
-                                        response,
-                                        endpoint,
-                                        options.model,
-                                        duration
-                                    )
-                            )
-                    }
-                } finally {
-                    cancellationHandle.dispose()
-                }
-            } catch (
-                exception: CancellationException
-            ) {
-                call?.cancel()
-                throw exception
-            } catch (exception: Exception) {
-                val duration =
-                    System.currentTimeMillis() -
-                        startedAt
-
-                val parsed =
-                    ErrorParser.fromException(
-                        exception = exception,
-                        endpoint = endpoint,
-                        model = options.model,
-                        durationMs = duration
-                    )
-
-                ApiOutcome.Failure(
-                    error = parsed.first,
-                    diagnostics = parsed.second
+            } else {
+                buildGenerationBody(
+                    settings = parameters,
+                    options = options
                 )
             }
-        }
 
-    private fun buildGenerationBody(
-        settings:
-            com.example.chatimage
-                .data.model
-                .ImageParameterSettings,
-        options: ImageRequestOptions
-    ): RequestBody {
-        val standard = JSONObject()
+            val requestBuilder = Request.Builder()
+                .url(endpoint)
+                .post(requestBody)
+                .header(
+                    "Accept",
+                    "application/json"
+                )
 
-        standard.put(
-            settings.modelFieldName,
-            options.model
-        )
-
-        standard.put(
-            settings.promptFieldName,
-            options.prompt
-        )
-
-        addOptionalImageFields(
-            standard,
-            settings,
-            options
-        )
-
-        val extra =
-            JsonUtils.parseObjectOrEmpty(
-                settings.extraGenerationJson
+            HeaderUtils.applyAuthentication(
+                builder = requestBuilder,
+                mode = profile.authenticationMode,
+                apiKey = resolvedProfile.apiKey,
+                headerName =
+                    profile.authorizationHeaderName,
+                prefix = profile.authorizationPrefix
             )
 
-        return JsonUtils.deepMerge(
-            standard,
-            extra,
+            HeaderUtils.applyCustomHeaders(
+                builder = requestBuilder,
+                entries = HeaderUtils.decode(
+                    profile.customHeadersJson
+                ),
+                category = RequestCategory.IMAGE
+            )
+
+            val call = clientFactory
+                .imageClient(appSettings.timeouts)
+                .newCall(requestBuilder.build())
+
+            activeCall = call
+
+            val cancellationHandle =
+                coroutineContext.job
+                    .invokeOnCompletion { cause ->
+                        if (
+                            cause is CancellationException
+                        ) {
+                            call.cancel()
+                        }
+                    }
+
+            try {
+                val response = call.execute()
+
+                return response.use { value ->
+                    processResponse(
+                        response = value,
+                        endpoint = endpoint,
+                        resolvedProfile =
+                            resolvedProfile,
+                        appSettings = appSettings,
+                        options = options,
+                        startedAt = startedAt
+                    )
+                }
+            } finally {
+                cancellationHandle.dispose()
+            }
+        } catch (exception: CancellationException) {
+            activeCall?.cancel()
+            throw exception
+        } catch (exception: Exception) {
+            val parsed = ErrorParser.fromException(
+                exception = exception,
+                endpoint = endpoint,
+                model = options.model,
+                durationMs =
+                    System.currentTimeMillis() -
+                        startedAt
+            )
+
+            return ApiOutcome.Failure(
+                error = parsed.first,
+                diagnostics = parsed.second
+            )
+        }
+    }
+
+    private fun processResponse(
+        response: Response,
+        endpoint: String,
+        resolvedProfile: ResolvedApiProfile,
+        appSettings: AppSettings,
+        options: ImageRequestOptions,
+        startedAt: Long
+    ): ApiOutcome<ImageGenerationResult> {
+        val responseText = response.body
+            ?.string()
+            .orEmpty()
+
+        val duration = System.currentTimeMillis() -
+            startedAt
+
+        if (!response.isSuccessful) {
+            val parsed = ErrorParser.fromHttpResponse(
+                response = response,
+                body = responseText,
+                endpoint = endpoint,
+                model = options.model,
+                durationMs = duration,
+                requestIdHeaderNames =
+                    appSettings.diagnostics
+                        .requestIdHeaderNames
+            )
+
+            return ApiOutcome.Failure(
+                error = parsed.first,
+                diagnostics = parsed.second
+            )
+        }
+
+        val diagnostics = buildDiagnostics(
+            response = response,
+            endpoint = endpoint,
+            model = options.model,
+            durationMs = duration,
+            requestIdHeaderNames =
+                appSettings.diagnostics
+                    .requestIdHeaderNames
+        )
+
+        val images = parseAndSaveImages(
+            responseText = responseText,
+            resolvedProfile = resolvedProfile,
+            appSettings = appSettings
+        )
+
+        if (images.isEmpty()) {
+            return ApiOutcome.Failure(
+                error = RequestError(
+                    code = "NO_IMAGE_DATA",
+                    message =
+                        "图片接口返回成功，但没有按当前字段路径解析到图片。请检查图片数组路径、URL 字段和 Base64 字段设置。",
+                    httpStatus = response.code,
+                    requestId = diagnostics.requestId,
+                    durationMs = duration,
+                    retryable = false,
+                    rawBodyPreview =
+                        responseText.take(2000)
+                ),
+                diagnostics = diagnostics
+            )
+        }
+
+        val responseJson = try {
+            JSONObject(responseText)
+        } catch (_: Exception) {
+            JSONObject()
+        }
+
+        val revisedPrompt = JsonUtils.readString(
+            responseJson,
+            "data[0].revised_prompt"
+        )
+
+        return ApiOutcome.Success(
+            value = ImageGenerationResult(
+                images = images,
+                revisedPrompt = revisedPrompt
+            ),
+            diagnostics = diagnostics
+        )
+    }
+
+    private fun buildGenerationBody(
+        settings: ImageParameterSettings,
+        options: ImageRequestOptions
+    ): RequestBody {
+        val standardJson = JSONObject()
+            .put(
+                settings.modelFieldName,
+                options.model
+            )
+            .put(
+                settings.promptFieldName,
+                options.prompt
+            )
+
+        addOptionalImageFields(
+            json = standardJson,
+            settings = settings,
+            options = options
+        )
+
+        val finalJson = JsonUtils.deepMerge(
+            base = standardJson,
+            overlay = JsonUtils.parseObjectOrEmpty(
+                settings.extraGenerationJson
+            ),
             overlayWins = true
         )
+
+        return finalJson
             .toString()
             .toRequestBody(
                 "application/json; charset=utf-8"
@@ -334,60 +301,53 @@ class ImageApiClient(
     }
 
     private fun buildEditBody(
-        settings:
-            com.example.chatimage
-                .data.model
-                .ImageParameterSettings,
+        settings: ImageParameterSettings,
         options: ImageRequestOptions,
         sourceFile: File
     ): RequestBody {
-        return when (
-            settings.imageEditTransport
-        ) {
+        return when (settings.imageEditTransport) {
             ImageEditTransport.MULTIPART -> {
                 buildMultipartEditBody(
-                    settings,
-                    options,
-                    sourceFile
+                    settings = settings,
+                    options = options,
+                    sourceFile = sourceFile
                 )
             }
 
-            ImageEditTransport.BASE64_JSON,
-            ImageEditTransport.DATA_URL_JSON -> {
-                val includePrefix =
-                    settings
-                        .imageEditTransport ==
-                        ImageEditTransport
-                            .DATA_URL_JSON ||
-                        settings
-                            .includeDataUrlPrefix
-
-                val imageValue =
-                    ImageFileUtils.fileToBase64(
-                        sourceFile,
-                        includePrefix
-                    )
-
+            ImageEditTransport.BASE64_JSON -> {
                 buildJsonEditBody(
                     settings = settings,
                     options = options,
-                    imageValue = imageValue
+                    imageValue =
+                        ImageFileUtils.fileToBase64(
+                            sourceFile,
+                            settings.includeDataUrlPrefix
+                        )
+                )
+            }
+
+            ImageEditTransport.DATA_URL_JSON -> {
+                buildJsonEditBody(
+                    settings = settings,
+                    options = options,
+                    imageValue =
+                        ImageFileUtils.fileToBase64(
+                            sourceFile,
+                            true
+                        )
                 )
             }
 
             ImageEditTransport.IMAGE_URL_JSON -> {
                 throw IllegalStateException(
-                    "当前源图片是手机本地文件，不能直接作为公网 image_url。请选择 Multipart、Base64 JSON 或 Data URL JSON。"
+                    "当前源图片位于手机本地，不能直接作为公网 image_url。请选择 MULTIPART、BASE64_JSON 或 DATA_URL_JSON。"
                 )
             }
         }
     }
 
     private fun buildMultipartEditBody(
-        settings:
-            com.example.chatimage
-                .data.model
-                .ImageParameterSettings,
+        settings: ImageParameterSettings,
         options: ImageRequestOptions,
         sourceFile: File
     ): RequestBody {
@@ -406,9 +366,7 @@ class ImageApiClient(
                 sourceFile.name,
                 sourceFile.asRequestBody(
                     ImageFileUtils
-                        .mimeTypeForFile(
-                            sourceFile
-                        )
+                        .mimeTypeForFile(sourceFile)
                         .toMediaType()
                 )
             )
@@ -434,26 +392,22 @@ class ImageApiClient(
             )
         }
 
-        if (
-            settings.responseFormatEnabled
-        ) {
+        if (settings.responseFormatEnabled) {
             builder.addFormDataPart(
-                settings
-                    .responseFormatFieldName,
+                settings.responseFormatFieldName,
                 options.responseFormat
             )
         }
 
-        val extra =
-            JsonUtils.parseObjectOrEmpty(
-                settings.extraEditJson
-            )
+        val extraJson = JsonUtils.parseObjectOrEmpty(
+            settings.extraEditJson
+        )
 
-        val keys = extra.keys()
+        val keys = extraJson.keys()
 
         while (keys.hasNext()) {
             val key = keys.next()
-            val value = extra.opt(key)
+            val value = extraJson.opt(key)
 
             if (
                 value != null &&
@@ -461,9 +415,7 @@ class ImageApiClient(
             ) {
                 builder.addFormDataPart(
                     key,
-                    JsonUtils.toCompactString(
-                        value
-                    )
+                    JsonUtils.toCompactString(value)
                 )
             }
         }
@@ -472,14 +424,11 @@ class ImageApiClient(
     }
 
     private fun buildJsonEditBody(
-        settings:
-            com.example.chatimage
-                .data.model
-                .ImageParameterSettings,
+        settings: ImageParameterSettings,
         options: ImageRequestOptions,
         imageValue: String
     ): RequestBody {
-        val standard = JSONObject()
+        val standardJson = JSONObject()
             .put(
                 settings.modelFieldName,
                 options.model
@@ -494,21 +443,20 @@ class ImageApiClient(
             )
 
         addOptionalImageFields(
-            standard,
-            settings,
-            options
+            json = standardJson,
+            settings = settings,
+            options = options
         )
 
-        val extra =
-            JsonUtils.parseObjectOrEmpty(
+        val finalJson = JsonUtils.deepMerge(
+            base = standardJson,
+            overlay = JsonUtils.parseObjectOrEmpty(
                 settings.extraEditJson
-            )
-
-        return JsonUtils.deepMerge(
-            standard,
-            extra,
+            ),
             overlayWins = true
         )
+
+        return finalJson
             .toString()
             .toRequestBody(
                 "application/json; charset=utf-8"
@@ -518,10 +466,7 @@ class ImageApiClient(
 
     private fun addOptionalImageFields(
         json: JSONObject,
-        settings:
-            com.example.chatimage
-                .data.model
-                .ImageParameterSettings,
+        settings: ImageParameterSettings,
         options: ImageRequestOptions
     ) {
         if (settings.sizeEnabled) {
@@ -545,12 +490,9 @@ class ImageApiClient(
             )
         }
 
-        if (
-            settings.responseFormatEnabled
-        ) {
+        if (settings.responseFormatEnabled) {
             json.put(
-                settings
-                    .responseFormatFieldName,
+                settings.responseFormatFieldName,
                 options.responseFormat
             )
         }
@@ -558,32 +500,26 @@ class ImageApiClient(
 
     private fun parseAndSaveImages(
         responseText: String,
-        resolvedProfile:
-            ResolvedApiProfile,
+        resolvedProfile: ResolvedApiProfile,
         appSettings: AppSettings
     ): List<SavedImageResult> {
         val root = JSONObject(responseText)
+        val settings = appSettings.imageParameters
 
-        val settings =
-            appSettings.imageParameters
-
-        val array = JsonUtils.readArray(
+        val imageArray = JsonUtils.readArray(
             root,
             settings.imageArrayPath
-        ) ?: if (settings.imageArrayPath != "images") {
-            root.optJSONArray("images")
-        } else {
-            null
-        } ?: return emptyList()
+        ) ?: root.optJSONArray("data")
+            ?: root.optJSONArray("images")
+            ?: return emptyList()
 
         val results =
             mutableListOf<SavedImageResult>()
 
         for (
-            index in 0 until
-                array.length()
+            index in 0 until imageArray.length()
         ) {
-            val item = array.opt(index)
+            val item = imageArray.opt(index)
 
             if (item is String) {
                 when {
@@ -599,15 +535,12 @@ class ImageApiClient(
                                 )
                     }
 
-                    UrlUtils.isHttpOrHttps(
-                        item
-                    ) -> {
+                    UrlUtils.isHttpOrHttps(item) -> {
                         results += downloadImage(
                             rawUrl = item,
                             resolvedProfile =
                                 resolvedProfile,
-                            appSettings =
-                                appSettings
+                            appSettings = appSettings
                         )
                     }
                 }
@@ -615,31 +548,28 @@ class ImageApiClient(
                 continue
             }
 
-            val objectItem =
-                item as? JSONObject
-                    ?: continue
+            val imageObject = item as? JSONObject
+                ?: continue
 
-            val base64 =
+            val base64Value =
                 JsonUtils.firstNonBlankString(
-                    objectItem,
-                    settings
-                        .imageBase64Paths
+                    imageObject,
+                    settings.imageBase64Paths
                 )
 
-            if (!base64.isNullOrBlank()) {
+            if (!base64Value.isNullOrBlank()) {
                 results +=
-                    ImageFileUtils
-                        .saveBase64Image(
-                            context,
-                            base64
-                        )
+                    ImageFileUtils.saveBase64Image(
+                        context,
+                        base64Value
+                    )
 
                 continue
             }
 
             val rawUrl =
                 JsonUtils.firstNonBlankString(
-                    objectItem,
+                    imageObject,
                     settings.imageUrlPaths
                 )
 
@@ -661,8 +591,7 @@ class ImageApiClient(
                         rawUrl = rawUrl,
                         resolvedProfile =
                             resolvedProfile,
-                        appSettings =
-                            appSettings
+                        appSettings = appSettings
                     )
                 }
             }
@@ -673,29 +602,23 @@ class ImageApiClient(
 
     private fun downloadImage(
         rawUrl: String,
-        resolvedProfile:
-            ResolvedApiProfile,
+        resolvedProfile: ResolvedApiProfile,
         appSettings: AppSettings
     ): SavedImageResult {
-        val profile =
-            resolvedProfile.profile
+        val profile = resolvedProfile.profile
+        val settings = appSettings.imageParameters
 
-        val imageSettings =
-            appSettings.imageParameters
-
-        val base = imageSettings
-            .relativeUrlBase
+        val baseUrl = settings.relativeUrlBase
             .ifBlank {
                 profile.baseUrl
             }
 
-        val absoluteUrl =
-            UrlUtils.resolveRelativeUrl(
-                base,
-                rawUrl
-            )
+        val absoluteUrl = UrlUtils.resolveRelativeUrl(
+            baseUrl,
+            rawUrl
+        )
 
-        val builder = Request.Builder()
+        val requestBuilder = Request.Builder()
             .url(absoluteUrl)
             .get()
             .header(
@@ -704,151 +627,111 @@ class ImageApiClient(
             )
 
         when (
-            imageSettings
-                .downloadAuthenticationMode
+            settings.downloadAuthenticationMode
                 .uppercase()
         ) {
-            "IMAGE_API",
-            "CHAT_API" -> {
-                HeaderUtils.applyAuthentication(
-                    builder = builder,
-                    mode = profile
-                        .authenticationMode,
-                    apiKey =
-                        resolvedProfile.apiKey,
-                    headerName = profile
-                        .authorizationHeaderName,
-                    prefix = profile
-                        .authorizationPrefix
-                )
-            }
-
             "NONE" -> Unit
 
             else -> {
                 HeaderUtils.applyAuthentication(
-                    builder = builder,
-                    mode = profile
-                        .authenticationMode,
+                    builder = requestBuilder,
+                    mode =
+                        profile.authenticationMode,
                     apiKey =
                         resolvedProfile.apiKey,
-                    headerName = profile
-                        .authorizationHeaderName,
-                    prefix = profile
-                        .authorizationPrefix
+                    headerName =
+                        profile
+                            .authorizationHeaderName,
+                    prefix =
+                        profile.authorizationPrefix
                 )
             }
         }
 
         HeaderUtils.applyCustomHeaders(
-            builder = builder,
+            builder = requestBuilder,
             entries = HeaderUtils.decode(
                 profile.customHeadersJson
             ),
-            category =
-                RequestCategory.DOWNLOAD
+            category = RequestCategory.DOWNLOAD
         )
 
-        val client =
-            clientFactory.imageDownloadClient(
+        val response = clientFactory
+            .imageDownloadClient(
                 appSettings.timeouts
             )
+            .newCall(requestBuilder.build())
+            .execute()
 
-        client.newCall(
-            builder.build()
-        ).execute().use { response ->
-            if (!response.isSuccessful) {
-                val errorText =
-                    response.body
-                        ?.string()
-                        .orEmpty()
+        return response.use { value ->
+            if (!value.isSuccessful) {
+                val errorText = value.body
+                    ?.string()
+                    .orEmpty()
+
+                val readableError =
+                    ErrorParser.parseJsonError(
+                        errorText
+                    ) ?: if (
+                        errorText.contains(
+                            "<html",
+                            ignoreCase = true
+                        )
+                    ) {
+                        ErrorParser.parseHtmlError(
+                            errorText
+                        )
+                    } else {
+                        errorText.take(1000)
+                    }
 
                 throw IllegalStateException(
-                    "图片已经生成，但下载失败：" +
-                        "HTTP ${response.code}\n" +
-                        (
-                            ErrorParser
-                                .parseJsonError(
-                                    errorText
-                                )
-                                ?: if (
-                                    errorText
-                                        .contains(
-                                            "<html",
-                                            ignoreCase =
-                                                true
-                                        )
-                                ) {
-                                    ErrorParser
-                                        .parseHtmlError(
-                                            errorText
-                                        )
-                                } else {
-                                    errorText.take(500)
-                                }
-                            )
+                    "图片已生成，但下载失败：HTTP ${value.code}\n$readableError"
                 )
             }
 
-            val contentType =
-                response.header(
-                    "Content-Type"
-                )
-                    ?.substringBefore(";")
-                    ?.trim()
-                    .orEmpty()
-
-            val bytes =
-                response.body?.bytes()
-                    ?: throw
-                        IllegalStateException(
-                            "下载到的图片为空"
-                        )
-
-            val saved =
-                ImageFileUtils.saveImageBytes(
-                    context = context,
-                    bytes = bytes,
-                    mimeType =
-                        contentType.ifBlank {
-                            "application/octet-stream"
-                        }
+            val bytes = value.body
+                ?.bytes()
+                ?: throw IllegalStateException(
+                    "下载到的图片内容为空"
                 )
 
-            return saved.copy(
+            val contentType = value.header(
+                "Content-Type"
+            ).orEmpty()
+
+            ImageFileUtils.saveImageBytes(
+                context = context,
+                bytes = bytes,
+                mimeType = contentType
+            ).copy(
                 originalUrl = rawUrl
             )
         }
     }
 
-    private fun diagnostics(
-        response: okhttp3.Response,
+    private fun buildDiagnostics(
+        response: Response,
         endpoint: String,
         model: String,
-        duration: Long
+        durationMs: Long,
+        requestIdHeaderNames: List<String>
     ): RequestDiagnostics {
-        val requestId =
-            listOf(
-                "x-request-id",
-                "request-id",
-                "cf-ray"
-            ).firstNotNullOfOrNull {
-                response.header(it)
+        val requestId = requestIdHeaderNames
+            .firstNotNullOfOrNull { name ->
+                response.header(name)
             }
 
         return RequestDiagnostics(
             endpoint = endpoint,
-            method =
-                response.request.method,
+            method = response.request.method,
             model = model,
             httpStatus = response.code,
-            durationMs = duration,
-            contentType =
-                response.header(
-                    "Content-Type"
-                ),
-            server =
-                response.header("Server"),
+            durationMs = durationMs,
+            contentType = response.header(
+                "Content-Type"
+            ),
+            server = response.header("Server"),
             requestId = requestId
         )
     }
