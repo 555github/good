@@ -126,7 +126,7 @@ class ImageApiClient(
                         appSettings.timeouts
                     )
 
-                                val requestCall = client.newCall(
+                val requestCall = client.newCall(
                     builder.build()
                 )
 
@@ -145,6 +145,7 @@ class ImageApiClient(
 
                 try {
                     requestCall.execute().use {
+
 
                         response ->
                         val responseText =
