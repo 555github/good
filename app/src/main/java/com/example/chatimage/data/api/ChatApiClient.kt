@@ -20,6 +20,7 @@ import okhttp3.Call
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
+import okhttp3.Response
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -39,9 +40,7 @@ class ChatApiClient(
         onDelta: suspend (String) -> Unit = {}
     ): ApiOutcome<ChatCompletionResult> =
         withContext(Dispatchers.IO) {
-            val profile =
-                resolvedProfile.profile
-
+            val profile = resolvedProfile.profile
             val chatSettings =
                 appSettings.chatParameters
 
@@ -54,31 +53,26 @@ class ChatApiClient(
             )
 
             val model = profile.chatModel
-
             val startedAt =
                 System.currentTimeMillis()
 
-            var call: Call? = null
+            var activeCall: Call? = null
 
             try {
                 val messageArray = JSONArray()
 
-                messages.forEach {
-                    messageArray.put(it.toJson())
+                messages.forEach { message ->
+                    messageArray.put(
+                        message.toJson()
+                    )
                 }
 
                 val standardJson = JSONObject()
                     .put("model", model)
-                    .put(
-                        "messages",
-                        messageArray
-                    )
+                    .put("messages", messageArray)
                     .put("stream", stream)
 
-                if (
-                    chatSettings
-                        .temperatureEnabled
-                ) {
+                if (chatSettings.temperatureEnabled) {
                     standardJson.put(
                         "temperature",
                         chatSettings.temperature
@@ -93,15 +87,12 @@ class ChatApiClient(
                 }
 
                 if (
-                    chatSettings
-                        .maxTokensEnabled &&
-                    chatSettings
-                        .maxTokensFieldName
+                    chatSettings.maxTokensEnabled &&
+                    chatSettings.maxTokensFieldName
                         .isNotBlank()
                 ) {
                     standardJson.put(
-                        chatSettings
-                            .maxTokensFieldName,
+                        chatSettings.maxTokensFieldName,
                         chatSettings.maxTokens
                     )
                 }
@@ -112,8 +103,7 @@ class ChatApiClient(
                 ) {
                     standardJson.put(
                         "frequency_penalty",
-                        chatSettings
-                            .frequencyPenalty
+                        chatSettings.frequencyPenalty
                     )
                 }
 
@@ -123,8 +113,7 @@ class ChatApiClient(
                 ) {
                     standardJson.put(
                         "presence_penalty",
-                        chatSettings
-                            .presencePenalty
+                        chatSettings.presencePenalty
                     )
                 }
 
@@ -137,50 +126,53 @@ class ChatApiClient(
 
                 if (
                     chatSettings.stopEnabled &&
-                    chatSettings
-                        .stopSequences
+                    chatSettings.stopSequences
                         .isNotEmpty()
                 ) {
-                    val stopArray = JSONArray()
+                    val validStops =
+                        chatSettings.stopSequences
+                            .filter(String::isNotEmpty)
 
-                    chatSettings
-                        .stopSequences
-                        .filter {
-                            it.isNotEmpty()
-                        }
-                        .forEach {
-                            stopArray.put(it)
-                        }
+                    when (validStops.size) {
+                        0 -> Unit
 
-                    if (stopArray.length() == 1) {
-                        standardJson.put(
+                        1 -> standardJson.put(
                             "stop",
-                            stopArray.optString(0)
+                            validStops.first()
                         )
-                    } else if (
-                        stopArray.length() > 1
-                    ) {
-                        standardJson.put(
-                            "stop",
-                            stopArray
-                        )
+
+                        else -> {
+                            val stopArray =
+                                JSONArray()
+
+                            validStops.forEach {
+                                stopArray.put(it)
+                            }
+
+                            standardJson.put(
+                                "stop",
+                                stopArray
+                            )
+                        }
                     }
                 }
 
                 applyResponseFormat(
-                    standardJson,
-                    chatSettings
-                        .responseFormatMode,
-                    chatSettings
-                        .responseFormatJson
+                    json = standardJson,
+                    mode =
+                        chatSettings
+                            .responseFormatMode,
+                    customJson =
+                        chatSettings
+                            .responseFormatJson
                 )
 
                 if (tools.isNotEmpty()) {
                     val toolsArray = JSONArray()
 
-                    tools.forEach {
+                    tools.forEach { tool ->
                         toolsArray.put(
-                            it.toOpenAiJson()
+                            tool.toOpenAiJson()
                         )
                     }
 
@@ -189,19 +181,21 @@ class ChatApiClient(
                         toolsArray
                     )
 
-                    standardJson.put(
-                        "tool_choice",
+                    val toolChoice =
                         toolChoiceOverride
                             ?: appSettings
                                 .search
                                 .toolChoice
+
+                    standardJson.put(
+                        "tool_choice",
+                        toolChoice
                     )
                 }
 
                 val extraJson =
                     JsonUtils.parseObjectOrEmpty(
-                        chatSettings
-                            .extraRequestJson
+                        chatSettings.extraRequestJson
                     )
 
                 val requestJson =
@@ -218,41 +212,40 @@ class ChatApiClient(
                             .toMediaType()
                     )
 
-                val builder = Request.Builder()
-                    .url(endpoint)
-                    .post(requestBody)
+                val requestBuilder =
+                    Request.Builder()
+                        .url(endpoint)
+                        .post(requestBody)
 
                 HeaderUtils.applyAuthentication(
-                    builder = builder,
-                    mode = profile
-                        .authenticationMode,
-                    apiKey = resolvedProfile.apiKey,
-                    headerName = profile
-                        .authorizationHeaderName,
-                    prefix = profile
-                        .authorizationPrefix
+                    builder = requestBuilder,
+                    mode =
+                        profile.authenticationMode,
+                    apiKey =
+                        resolvedProfile.apiKey,
+                    headerName =
+                        profile
+                            .authorizationHeaderName,
+                    prefix =
+                        profile.authorizationPrefix
                 )
 
                 HeaderUtils.applyCustomHeaders(
-                    builder = builder,
+                    builder = requestBuilder,
                     entries = HeaderUtils.decode(
                         profile.customHeadersJson
                     ),
-                    category =
-                        RequestCategory.CHAT
+                    category = RequestCategory.CHAT
                 )
 
-                if (stream) {
-                    builder.header(
-                        "Accept",
+                requestBuilder.header(
+                    "Accept",
+                    if (stream) {
                         "text/event-stream"
-                    )
-                } else {
-                    builder.header(
-                        "Accept",
+                    } else {
                         "application/json"
-                    )
-                }
+                    }
+                )
 
                 val client =
                     if (useToolDecisionTimeout) {
@@ -266,25 +259,25 @@ class ChatApiClient(
                         )
                     }
 
-                call = client.newCall(
-                    builder.build()
+                val call = client.newCall(
+                    requestBuilder.build()
                 )
+
+                activeCall = call
 
                 val cancellationHandle =
                     coroutineContext.job
-                        .invokeOnCompletion {
-                            cause ->
+                        .invokeOnCompletion { cause ->
                             if (
                                 cause is
-                                    CancellationException
+                                CancellationException
                             ) {
-                                call?.cancel()
+                                call.cancel()
                             }
                         }
 
                 try {
-                    call.execute().use {
-                        response ->
+                    call.execute().use { response ->
                         val responseBody =
                             response.body
                                 ?: throw
@@ -307,8 +300,7 @@ class ChatApiClient(
                                         body = body,
                                         endpoint = endpoint,
                                         model = model,
-                                        durationMs =
-                                            duration,
+                                        durationMs = duration,
                                         requestIdHeaderNames =
                                             appSettings
                                                 .diagnostics
@@ -342,7 +334,11 @@ class ChatApiClient(
                                         System
                                             .currentTimeMillis() -
                                             startedAt,
-                                    response = response
+                                    response = response,
+                                    requestIdHeaderNames =
+                                        appSettings
+                                            .diagnostics
+                                            .requestIdHeaderNames
                                 )
 
                             return@withContext
@@ -353,13 +349,14 @@ class ChatApiClient(
                                 )
                         }
 
-                        val result = parseStreamResponse(
-                            source =
-                                responseBody.source(),
-                            appSettings =
-                                appSettings,
-                            onDelta = onDelta
-                        )
+                        val result =
+                            parseStreamResponse(
+                                source =
+                                    responseBody.source(),
+                                appSettings =
+                                    appSettings,
+                                onDelta = onDelta
+                            )
 
                         val diagnostics =
                             buildDiagnostics(
@@ -369,7 +366,11 @@ class ChatApiClient(
                                     System
                                         .currentTimeMillis() -
                                         startedAt,
-                                response = response
+                                response = response,
+                                requestIdHeaderNames =
+                                    appSettings
+                                        .diagnostics
+                                        .requestIdHeaderNames
                             )
 
                         return@withContext
@@ -385,7 +386,7 @@ class ChatApiClient(
             } catch (
                 exception: CancellationException
             ) {
-                call?.cancel()
+                activeCall?.cancel()
                 throw exception
             } catch (exception: Exception) {
                 val duration =
@@ -412,14 +413,12 @@ class ChatApiClient(
         appSettings: AppSettings,
         onDelta: suspend (String) -> Unit
     ): ChatCompletionResult {
-        val chatSettings =
+        val settings =
             appSettings.chatParameters
-
-        val protocol = chatSettings
-            .streamProtocol
 
         val fullText = StringBuilder()
         var finishReason: String? = null
+        var receivedJson = false
 
         while (!source.exhausted()) {
             coroutineContext.ensureActive()
@@ -434,46 +433,55 @@ class ChatApiClient(
                 continue
             }
 
-            val payload = when (protocol) {
+            val payload = when (
+                settings.streamProtocol
+            ) {
                 StreamProtocol.SSE -> {
                     parseSsePayload(
-                        line,
-                        chatSettings
-                            .sseDataPrefix
+                        line = line,
+                        prefix =
+                            settings.sseDataPrefix
                     )
                 }
 
                 StreamProtocol.JSON_LINES -> {
-                    line
+                    line.takeIf {
+                        it.startsWith("{") ||
+                            it.startsWith("[")
+                    }
                 }
 
                 StreamProtocol.AUTO -> {
-                    if (
+                    when {
                         line.startsWith(
-                            chatSettings
-                                .sseDataPrefix
-                        )
-                    ) {
-                        parseSsePayload(
-                            line,
-                            chatSettings
-                                .sseDataPrefix
-                        )
-                    } else if (
-                        line.startsWith("{")
-                    ) {
-                        line
-                    } else {
-                        null
+                            settings.sseDataPrefix
+                        ) -> {
+                            parseSsePayload(
+                                line = line,
+                                prefix =
+                                    settings
+                                        .sseDataPrefix
+                            )
+                        }
+
+                        line.startsWith("{") -> {
+                            line
+                        }
+
+                        else -> null
                     }
                 }
             } ?: continue
 
             if (
                 payload ==
-                chatSettings.sseDoneMarker
+                settings.sseDoneMarker
             ) {
                 break
+            }
+
+            if (payload.isBlank()) {
+                continue
             }
 
             val root = try {
@@ -482,11 +490,12 @@ class ChatApiClient(
                 continue
             }
 
+            receivedJson = true
+
             val fragment =
                 JsonUtils.readString(
                     root,
-                    chatSettings
-                        .streamTextPath
+                    settings.streamTextPath
                 ).orEmpty()
 
             if (fragment.isNotEmpty()) {
@@ -499,6 +508,15 @@ class ChatApiClient(
                     root,
                     "choices[0].finish_reason"
                 ) ?: finishReason
+        }
+
+        if (
+            !receivedJson &&
+            fullText.isEmpty()
+        ) {
+            throw IllegalStateException(
+                "服务器返回了流式响应，但没有解析到 JSON 数据。请检查流式协议、SSE 前缀和文本字段路径，或暂时关闭流式输出。"
+            )
         }
 
         return ChatCompletionResult(
@@ -538,25 +556,42 @@ class ChatApiClient(
                 toolCalls.isEmpty() &&
                 legacyFunctionCall != null
             ) {
-                listOf(
-                    ToolCall(
-                        id = "legacy_" +
-                            UUID.randomUUID(),
-                        type = "function",
-                        functionName =
-                            legacyFunctionCall
-                                .optString("name"),
-                        argumentsJson =
-                            legacyFunctionCall
-                                .optString(
-                                    "arguments",
-                                    "{}"
-                                )
+                val functionName =
+                    legacyFunctionCall
+                        .optString("name")
+                        .trim()
+
+                if (functionName.isBlank()) {
+                    emptyList()
+                } else {
+                    listOf(
+                        ToolCall(
+                            id =
+                                "legacy_" +
+                                    UUID.randomUUID(),
+                            functionName =
+                                functionName,
+                            argumentsJson =
+                                legacyFunctionCall
+                                    .optString(
+                                        "arguments",
+                                        "{}"
+                                    )
+                        )
                     )
-                )
+                }
             } else {
                 toolCalls
             }
+
+        if (
+            content.isBlank() &&
+            allCalls.isEmpty()
+        ) {
+            throw IllegalStateException(
+                "接口成功返回，但没有按当前字段路径找到文本或 Tool Calls。响应预览：${body.take(1000)}"
+            )
+        }
 
         return ChatCompletionResult(
             content = content,
@@ -580,17 +615,15 @@ class ChatApiClient(
 
         return buildList {
             for (
-                index in 0 until
-                    array.length()
+                index in 0 until array.length()
             ) {
                 val item =
                     array.optJSONObject(index)
                         ?: continue
 
                 val function =
-                    item.optJSONObject(
-                        "function"
-                    ) ?: continue
+                    item.optJSONObject("function")
+                        ?: continue
 
                 val name =
                     function
@@ -603,12 +636,12 @@ class ChatApiClient(
 
                 add(
                     ToolCall(
-                        id = item.optString(
-                            "id"
-                        ).ifBlank {
-                            "call_" +
-                                UUID.randomUUID()
-                        },
+                        id = item
+                            .optString("id")
+                            .ifBlank {
+                                "call_" +
+                                    UUID.randomUUID()
+                            },
                         type = item.optString(
                             "type",
                             "function"
@@ -629,6 +662,10 @@ class ChatApiClient(
         line: String,
         prefix: String
     ): String? {
+        if (prefix.isBlank()) {
+            return line
+        }
+
         if (!line.startsWith(prefix)) {
             return null
         }
@@ -643,25 +680,24 @@ class ChatApiClient(
         mode: String,
         customJson: String
     ) {
-        when (
-            mode.trim().uppercase()
-        ) {
+        when (mode.trim().uppercase()) {
             "TEXT" -> {
                 json.put(
                     "response_format",
-                    JSONObject()
-                        .put("type", "text")
+                    JSONObject().put(
+                        "type",
+                        "text"
+                    )
                 )
             }
 
             "JSON_OBJECT" -> {
                 json.put(
                     "response_format",
-                    JSONObject()
-                        .put(
-                            "type",
-                            "json_object"
-                        )
+                    JSONObject().put(
+                        "type",
+                        "json_object"
+                    )
                 )
             }
 
@@ -682,16 +718,15 @@ class ChatApiClient(
         endpoint: String,
         model: String,
         durationMs: Long,
-        response: okhttp3.Response
+        response: Response,
+        requestIdHeaderNames:
+            List<String>
     ): RequestDiagnostics {
         val requestId =
-            listOf(
-                "x-request-id",
-                "request-id",
-                "cf-ray"
-            ).firstNotNullOfOrNull {
-                response.header(it)
-            }
+            requestIdHeaderNames
+                .firstNotNullOfOrNull {
+                    response.header(it)
+                }
 
         return RequestDiagnostics(
             endpoint = endpoint,
