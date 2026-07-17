@@ -1875,10 +1875,10 @@ private fun SearchSettingsSection(
         label = "Tool Calls 模式",
         current =
             search.toolCallMode.name,
-        values =
-            ToolCallMode.entries.map {
-                it.name
-            },
+        values = listOf(
+            ToolCallMode.DISABLED.name,
+            ToolCallMode.OPENAI_TOOLS.name
+        ),
         onSelect = {
             onChange(
                 settings.copy(
