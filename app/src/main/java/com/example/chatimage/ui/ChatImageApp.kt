@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.History
@@ -32,6 +33,10 @@ import com.example.chatimage.data.model.RequestRoute
 import com.example.chatimage.ui.chat.ConversationScreen
 import com.example.chatimage.ui.chat.ImageViewerDialog
 import com.example.chatimage.ui.history.HistoryDialog
+import com.example.chatimage.ui.settings.ApiProfilesDialog
+import com.example.chatimage.ui.settings.ImageParametersDialog
+import com.example.chatimage.ui.settings.SearchProfilesDialog
+import com.example.chatimage.ui.settings.SettingsDialog
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -67,37 +72,34 @@ fun ChatImageApp(
                             maxLines = 1
                         )
 
-                        val secondaryText =
-                            buildList {
-                                if (
-                                    state.appSettings
-                                        .appearance
-                                        .showProfileInTopBar
-                                ) {
-                                    state.activeApiProfile
-                                        ?.name
-                                        ?.takeIf {
-                                            it.isNotBlank()
-                                        }
-                                        ?.let(::add)
-                                }
-
-                                if (
-                                    state.appSettings
-                                        .appearance
-                                        .showModelInTopBar
-                                ) {
-                                    currentModelName(
-                                        state
-                                    ).takeIf {
+                        val secondaryText = buildList {
+                            if (
+                                state.appSettings
+                                    .appearance
+                                    .showProfileInTopBar
+                            ) {
+                                state.activeApiProfile
+                                    ?.name
+                                    ?.takeIf {
                                         it.isNotBlank()
-                                    }?.let(::add)
-                                }
-                            }.joinToString(" · ")
+                                    }
+                                    ?.let(::add)
+                            }
 
-                        if (
-                            secondaryText.isNotBlank()
-                        ) {
+                            if (
+                                state.appSettings
+                                    .appearance
+                                    .showModelInTopBar
+                            ) {
+                                currentModelName(state)
+                                    .takeIf {
+                                        it.isNotBlank()
+                                    }
+                                    ?.let(::add)
+                            }
+                        }.joinToString(" · ")
+
+                        if (secondaryText.isNotBlank()) {
                             Text(
                                 text = secondaryText,
                                 style = MaterialTheme
@@ -128,15 +130,12 @@ fun ChatImageApp(
                                 showRouteMenu = false
                             }
                         ) {
-                            routeEntries.forEach {
-                                route ->
+                            routeEntries.forEach { route ->
                                 DropdownMenuItem(
                                     text = {
                                         Column {
                                             Text(
-                                                routeLabel(
-                                                    route
-                                                )
+                                                routeLabel(route)
                                             )
 
                                             Text(
@@ -244,8 +243,59 @@ fun ChatImageApp(
         )
     }
 
-    state.selectedImageForViewer?.let {
-        image ->
+    if (state.showSettings) {
+        SettingsDialog(
+            state = state,
+            viewModel = viewModel,
+            onDismiss = {
+                viewModel.setShowSettings(
+                    false
+                )
+            }
+        )
+    }
+
+    if (state.showImageParameters) {
+        ImageParametersDialog(
+            settings = state.appSettings,
+            onSave = {
+                viewModel.updateAppSettings(it)
+            },
+            onDismiss = {
+                viewModel
+                    .setShowImageParameters(
+                        false
+                    )
+            }
+        )
+    }
+
+    if (state.showApiProfiles) {
+        ApiProfilesDialog(
+            state = state,
+            viewModel = viewModel,
+            onDismiss = {
+                viewModel.setShowApiProfiles(
+                    false
+                )
+            }
+        )
+    }
+
+    if (state.showSearchProfiles) {
+        SearchProfilesDialog(
+            state = state,
+            viewModel = viewModel,
+            onDismiss = {
+                viewModel
+                    .setShowSearchProfiles(
+                        false
+                    )
+            }
+        )
+    }
+
+    state.selectedImageForViewer?.let { image ->
         ImageViewerDialog(
             image = image,
             onDismiss = {
@@ -267,8 +317,7 @@ fun ChatImageApp(
         )
     }
 
-    state.pendingOptimization?.let {
-        pending ->
+    state.pendingOptimization?.let { pending ->
         PromptOptimizationDialog(
             pending = pending,
             onOptimize = {
@@ -288,8 +337,7 @@ fun ChatImageApp(
         )
     }
 
-    state.pendingRouteConfirmation?.let {
-        pending ->
+    state.pendingRouteConfirmation?.let { pending ->
         AlertDialog(
             onDismissRequest = {
                 viewModel
@@ -310,7 +358,8 @@ fun ChatImageApp(
                             .isNullOrBlank()
                     ) {
                         Text(
-                            "没有找到可编辑的源图片，请先选择图片。",
+                            text =
+                                "没有找到可编辑的源图片，请先选择图片，或者点击上文图片的“继续编辑”。",
                             color = MaterialTheme
                                 .colorScheme
                                 .error
@@ -328,10 +377,10 @@ fun ChatImageApp(
                         viewModel
                             .confirmRouteDecision()
                     },
-                    enabled =
-                        !pending.decision
-                            .sourceImagePath
-                            .isNullOrBlank()
+                    enabled = !pending
+                        .decision
+                        .sourceImagePath
+                        .isNullOrBlank()
                 ) {
                     Text("继续")
                 }
@@ -358,11 +407,9 @@ fun ChatImageApp(
                 Text("错误")
             },
             text = {
-                androidx.compose.foundation
-                    .text.selection
-                    .SelectionContainer {
-                        Text(error)
-                    }
+                SelectionContainer {
+                    Text(error)
+                }
             },
             confirmButton = {
                 Button(
@@ -375,11 +422,6 @@ fun ChatImageApp(
             }
         )
     }
-
-    /*
-     * 设置界面将在下一批交付。当前状态保留，等下一批
-     * SettingsDialog 加入后，点击齿轮即可打开完整图形设置。
-     */
 }
 
 @Composable
@@ -398,11 +440,12 @@ private fun PromptOptimizationDialog(
         text = {
             Column {
                 Text(
-                    "长提示词可能使部分中转站发生 502 或 504。可以先使用聊天模型压缩提示词。"
+                    "长提示词可能使部分中转站发生 502 或 504。你可以先使用聊天模型压缩提示词。"
                 )
 
                 Text(
-                    "原始长度：${pending.originalPrompt.length} 字符",
+                    text =
+                        "原始长度：${pending.originalPrompt.length} 字符",
                     style = MaterialTheme
                         .typography
                         .bodySmall
@@ -410,32 +453,34 @@ private fun PromptOptimizationDialog(
 
                 if (pending.optimizing) {
                     LinearProgressIndicator()
+
                     Text("正在优化提示词……")
                 }
 
                 pending.optimizedPrompt?.let {
                     optimized ->
+
                     Text(
-                        "优化结果：",
+                        text = "优化结果：",
                         style = MaterialTheme
                             .typography
                             .titleSmall
                     )
 
-                    androidx.compose.foundation
-                        .text.selection
-                        .SelectionContainer {
-                            Text(optimized)
-                        }
+                    SelectionContainer {
+                        Text(optimized)
+                    }
                 }
 
                 pending.error?.let { error ->
-                    Text(
-                        text = error,
-                        color = MaterialTheme
-                            .colorScheme
-                            .error
-                    )
+                    SelectionContainer {
+                        Text(
+                            text = error,
+                            color = MaterialTheme
+                                .colorScheme
+                                .error
+                        )
+                    }
                 }
             }
         },
@@ -446,31 +491,38 @@ private fun PromptOptimizationDialog(
             ) {
                 Button(
                     onClick = onOptimize,
-                    enabled = !pending.optimizing
+                    enabled =
+                        !pending.optimizing
                 ) {
                     Text("优化")
                 }
             } else {
                 Button(
-                    onClick = onUseOptimized
+                    onClick =
+                        onUseOptimized
                 ) {
                     Text("使用优化结果")
                 }
             }
         },
         dismissButton = {
-            TextButton(
-                onClick = onUseOriginal,
-                enabled = !pending.optimizing
-            ) {
-                Text("使用原文")
-            }
+            Column {
+                TextButton(
+                    onClick =
+                        onUseOriginal,
+                    enabled =
+                        !pending.optimizing
+                ) {
+                    Text("使用原文")
+                }
 
-            TextButton(
-                onClick = onCancel,
-                enabled = !pending.optimizing
-            ) {
-                Text("取消")
+                TextButton(
+                    onClick = onCancel,
+                    enabled =
+                        !pending.optimizing
+                ) {
+                    Text("取消")
+                }
             }
         }
     )
@@ -480,15 +532,20 @@ private val routeEntries = listOf(
     RequestRoute.AUTO,
     RequestRoute.CHAT,
     RequestRoute.IMAGE_GENERATION,
-    RequestRoute.IMAGE_EDIT
+    RequestRoute.IMAGE_EDIT,
+    RequestRoute.VISION_CHAT
 )
 
 private fun routeLabel(
     route: RequestRoute
 ): String {
     return when (route) {
-        RequestRoute.AUTO -> "自动"
-        RequestRoute.CHAT -> "聊天"
+        RequestRoute.AUTO ->
+            "自动"
+
+        RequestRoute.CHAT ->
+            "聊天"
+
         RequestRoute.IMAGE_GENERATION ->
             "文生图"
 
@@ -524,9 +581,8 @@ private fun routeDescription(
 private fun currentModelName(
     state: AppUiState
 ): String {
-    val profile =
-        state.activeApiProfile
-            ?: return ""
+    val profile = state.activeApiProfile
+        ?: return ""
 
     return when (state.selectedRoute) {
         RequestRoute.IMAGE_GENERATION,
@@ -540,12 +596,13 @@ private fun currentModelName(
         }
 
         RequestRoute.VISION_CHAT -> {
-            profile.visionModel
-                .ifBlank {
-                    profile.chatModel
-                }
+            profile.visionModel.ifBlank {
+                profile.chatModel
+            }
         }
 
-        else -> profile.chatModel
+        else -> {
+            profile.chatModel
+        }
     }
 }
