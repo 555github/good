@@ -1,5 +1,6 @@
 package com.example.chatimage.data.repository
 
+import kotlinx.coroutines.flow.first
 import com.example.chatimage.data.api.SavedImageResult
 import com.example.chatimage.data.database.ConversationDao
 import com.example.chatimage.data.database.ConversationEntity
@@ -230,10 +231,10 @@ class ConversationRepository(
         deleteLocalImages: Boolean = false
     ) {
         if (deleteLocalImages) {
-            val conversations =
-                kotlinx.coroutines.flow.first(
-                    conversationDao.observeAll()
-                )
+                        val conversations =
+                conversationDao
+                    .observeAll()
+                    .first()
 
             conversations.forEach {
                 deleteConversation(
