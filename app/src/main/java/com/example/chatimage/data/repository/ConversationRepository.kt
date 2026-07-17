@@ -231,7 +231,7 @@ class ConversationRepository(
         deleteLocalImages: Boolean = false
     ) {
         if (deleteLocalImages) {
-                        val conversations =
+            val conversations =
                 conversationDao
                     .observeAll()
                     .first()
