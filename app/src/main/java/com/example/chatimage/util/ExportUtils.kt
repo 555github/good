@@ -25,10 +25,7 @@ class ExportUtils(
                     .getConversation(
                         conversationId
                     )
-                    ?: throw
-                        IllegalStateException(
-                            "对话不存在"
-                        )
+                    ?: error("对话不存在")
 
             val messages =
                 conversationRepository
@@ -45,12 +42,8 @@ class ExportUtils(
                         includeLocalImagePaths
                 )
 
-            val directory = File(
-                context.filesDir,
-                "exports"
-            ).apply {
-                mkdirs()
-            }
+            val directory =
+                exportDirectory()
 
             val file = File(
                 directory,
@@ -82,10 +75,7 @@ class ExportUtils(
                     .getConversation(
                         conversationId
                     )
-                    ?: throw
-                        IllegalStateException(
-                            "对话不存在"
-                        )
+                    ?: error("对话不存在")
 
             val messages =
                 conversationRepository
@@ -117,15 +107,8 @@ class ExportUtils(
                     )
                 )
 
-            val directory = File(
-                context.filesDir,
-                "exports"
-            ).apply {
-                mkdirs()
-            }
-
             val file = File(
-                directory,
+                exportDirectory(),
                 safeFileName(
                     conversation.title
                 ) +
@@ -150,18 +133,18 @@ class ExportUtils(
             false
     ): Result<File> {
         return runCatching {
-            val conversationArray =
-                JSONArray()
+            val array = JSONArray()
 
             conversations.forEach {
                 conversation ->
+
                 val messages =
                     conversationRepository
                         .getMessages(
                             conversation.id
                         )
 
-                conversationArray.put(
+                array.put(
                     JSONObject()
                         .put(
                             "conversation",
@@ -191,18 +174,11 @@ class ExportUtils(
                 )
                 .put(
                     "conversations",
-                    conversationArray
+                    array
                 )
 
-            val directory = File(
-                context.filesDir,
-                "exports"
-            ).apply {
-                mkdirs()
-            }
-
             val file = File(
-                directory,
+                exportDirectory(),
                 "ChatImage_Backup_" +
                     System.currentTimeMillis() +
                     ".json"
@@ -229,46 +205,32 @@ class ExportUtils(
                 "# ${conversation.title}"
             )
             appendLine()
-
             appendLine(
-                "- 创建时间：" +
-                    conversation.createdAt
+                "- 创建时间：${conversation.createdAt}"
             )
-
             appendLine(
-                "- 更新时间：" +
-                    conversation.updatedAt
+                "- 更新时间：${conversation.updatedAt}"
             )
-
             appendLine()
 
             messages.forEach { item ->
-                val roleTitle =
-                    when (
-                        item.message
-                            .role
-                            .lowercase()
-                    ) {
-                        "user" -> "用户"
-                        "assistant" -> "助手"
-                        "system" -> "系统"
-                        "tool" -> "工具"
-                        else ->
-                            item.message.role
-                    }
+                val message = item.message
 
-                appendLine(
-                    "## $roleTitle"
-                )
+                val roleTitle = when (
+                    message.role.lowercase()
+                ) {
+                    "user" -> "用户"
+                    "assistant" -> "助手"
+                    "system" -> "系统"
+                    "tool" -> "工具"
+                    else -> message.role
+                }
+
+                appendLine("## $roleTitle")
                 appendLine()
 
-                if (
-                    item.message.text
-                        .isNotBlank()
-                ) {
-                    appendLine(
-                        item.message.text
-                    )
+                if (message.text.isNotBlank()) {
+                    appendLine(message.text)
                     appendLine()
                 }
 
@@ -277,7 +239,7 @@ class ExportUtils(
                     image ->
 
                     appendLine(
-                        "图片 ${index + 1}"
+                        "### 图片 ${index + 1}"
                     )
 
                     if (
@@ -298,50 +260,71 @@ class ExportUtils(
                         )
                     }
 
+                    if (
+                        !image.model
+                            .isNullOrBlank()
+                    ) {
+                        appendLine(
+                            "模型：${image.model}"
+                        )
+                    }
+
+                    if (
+                        !image.sizeParameter
+                            .isNullOrBlank()
+                    ) {
+                        appendLine(
+                            "尺寸：${image.sizeParameter}"
+                        )
+                    }
+
+                    if (
+                        !image.qualityParameter
+                            .isNullOrBlank()
+                    ) {
+                        appendLine(
+                            "质量：${image.qualityParameter}"
+                        )
+                    }
+
                     appendLine()
                 }
 
                 if (
-                    !item.message
-                        .errorMessage
+                    !message.errorMessage
                         .isNullOrBlank()
                 ) {
                     appendLine(
-                        "> 错误：" +
-                            item.message
-                                .errorMessage
+                        "> 错误：${message.errorMessage}"
                     )
                     appendLine()
                 }
 
                 if (
-                    !item.message
-                        .citationsJson
+                    !message.citationsJson
                         .isNullOrBlank()
                 ) {
-                    appendLine(
-                        "### 来源"
-                    )
+                    appendLine("### 来源")
                     appendLine()
 
                     parseCitations(
-                        item.message
-                            .citationsJson
+                        message.citationsJson
                     ).forEach {
-                        index,
-                        title,
-                        url ->
+                        (
+                            index,
+                            title,
+                            url
+                        ) ->
 
-                        appendLine(
-                            "- [$index] " +
-                                if (
-                                    url.isNotBlank()
-                                ) {
-                                    "[$title]($url)"
-                                } else {
-                                    title
-                                }
-                        )
+                        if (url.isNotBlank()) {
+                            appendLine(
+                                "- [$index] [$title]($url)"
+                            )
+                        } else {
+                            appendLine(
+                                "- [$index] $title"
+                            )
+                        }
                     }
 
                     appendLine()
@@ -468,8 +451,7 @@ class ExportUtils(
                 )
             }
 
-            val message =
-                item.message
+            val message = item.message
 
             array.put(
                 JSONObject()
@@ -596,6 +578,15 @@ class ExportUtils(
             }
         } catch (_: Exception) {
             emptyList()
+        }
+    }
+
+    private fun exportDirectory(): File {
+        return File(
+            context.filesDir,
+            "exports"
+        ).apply {
+            mkdirs()
         }
     }
 
