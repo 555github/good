@@ -229,24 +229,26 @@ class SearchApiClient(
                         appSettings.timeouts
                     )
 
-                call = client.newCall(
+                                val requestCall = client.newCall(
                     requestBuilder.build()
                 )
 
+                call = requestCall
+
                 val cancellationHandle =
                     coroutineContext.job
-                        .invokeOnCompletion {
-                            cause ->
+                        .invokeOnCompletion { cause ->
                             if (
                                 cause is
-                                    CancellationException
+                                CancellationException
                             ) {
-                                call?.cancel()
+                                requestCall.cancel()
                             }
                         }
 
                 try {
-                    call.execute().use {
+                    requestCall.execute().use {
+
                         response ->
                         val body = response.body
                             ?.string()
