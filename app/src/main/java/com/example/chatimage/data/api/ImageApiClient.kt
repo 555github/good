@@ -49,7 +49,7 @@ class ImageApiClient(
         }
     }
 
-    private fun executeRequest(
+    private suspend fun executeRequest(
         resolvedProfile: ResolvedApiProfile,
         appSettings: AppSettings,
         options: ImageRequestOptions
@@ -190,8 +190,8 @@ class ImageApiClient(
             ?.string()
             .orEmpty()
 
-        val duration = System.currentTimeMillis() -
-            startedAt
+        val duration =
+            System.currentTimeMillis() - startedAt
 
         if (!response.isSuccessful) {
             val parsed = ErrorParser.fromHttpResponse(
