@@ -45,7 +45,7 @@ class SearchApiClient(
         }
     }
 
-    private fun executeRequest(
+    private suspend fun executeRequest(
         resolvedProfile: ResolvedSearchProfile,
         appSettings: AppSettings,
         query: String,
@@ -291,8 +291,8 @@ class SearchApiClient(
             ?.string()
             .orEmpty()
 
-        val duration = System.currentTimeMillis() -
-            startedAt
+        val duration =
+            System.currentTimeMillis() - startedAt
 
         if (!response.isSuccessful) {
             val parsed = ErrorParser.fromHttpResponse(
