@@ -3054,15 +3054,13 @@ fun ApiProfilesDialog(
         ApiProfileEditor(
             profile = null,
             onSave = { profile, key ->
-                viewModel.createApiProfile(
-                    name = profile.name,
-                    baseUrl =
-                        profile.baseUrl,
-                    apiKey = key.orEmpty(),
-                    chatModel =
-                        profile.chatModel,
-                    imageModel =
-                        profile.imageModel
+                /*
+                 * 使用 saveApiProfile 保存整个实体，
+                 * 确保高级接口路径、认证和请求头不会丢失。
+                 */
+                viewModel.saveApiProfile(
+                    profile = profile,
+                    newApiKey = key
                 )
 
                 creating = false
@@ -4103,7 +4101,7 @@ private fun NumberField(
                 keyboardType =
                     KeyboardType.Number
             ),
-                singleLine = true
+        singleLine = true
     )
 }
 
@@ -4397,4 +4395,3 @@ private inline fun <
         )
     } ?: default
 }
-
