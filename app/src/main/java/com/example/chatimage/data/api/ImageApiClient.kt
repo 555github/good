@@ -126,24 +126,26 @@ class ImageApiClient(
                         appSettings.timeouts
                     )
 
-                call = client.newCall(
+                                val requestCall = client.newCall(
                     builder.build()
                 )
 
+                call = requestCall
+
                 val cancellationHandle =
                     coroutineContext.job
-                        .invokeOnCompletion {
-                            cause ->
+                        .invokeOnCompletion { cause ->
                             if (
                                 cause is
-                                    CancellationException
+                                CancellationException
                             ) {
-                                call?.cancel()
+                                requestCall.cancel()
                             }
                         }
 
                 try {
-                    call.execute().use {
+                    requestCall.execute().use {
+
                         response ->
                         val responseText =
                             response.body
