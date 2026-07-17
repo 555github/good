@@ -1423,6 +1423,11 @@ class AppViewModel(
         viewModelScope.launch {
             val state = _uiState.value
 
+            if (state.loading) {
+                showError("当前仍有请求正在运行")
+                return@launch
+            }
+
             val assistantIndex =
                 state.messages.indexOfFirst {
                     it.message.id ==
@@ -1430,13 +1435,11 @@ class AppViewModel(
                 }
 
             if (assistantIndex <= 0) {
-                showError(
-                    "找不到对应的用户消息"
-                )
+                showError("找不到对应的用户消息")
                 return@launch
             }
 
-            val userMessage =
+            val userUiModel =
                 state.messages
                     .subList(
                         0,
@@ -1446,47 +1449,68 @@ class AppViewModel(
                     .firstOrNull {
                         it.isUser
                     }
-                    ?.message
+
+            val userMessage =
+                userUiModel?.message
 
             if (userMessage == null) {
-                showError(
-                    "找不到对应的用户消息"
-                )
+                showError("找不到对应的用户消息")
                 return@launch
             }
 
             val route = runCatching {
                 RequestRoute.valueOf(
                     userMessage.route
-                        ?: "AUTO"
+                        ?: RequestRoute.AUTO.name
                 )
             }.getOrDefault(
                 RequestRoute.AUTO
             )
 
-            conversationRepository
-                .deleteMessage(
+            val retryText =
+                userMessage.originalPrompt
+                    ?.takeIf {
+                        it.isNotBlank()
+                    }
+                    ?: userMessage.text
+
+            if (retryText.isBlank()) {
+                showError("原始消息内容为空，无法重试")
+                return@launch
+            }
+
+            /*
+             * 删除失败的助手消息和对应旧用户消息。
+             * 随后 prepareSend() 会重新创建用户消息，
+             * 防止重试时产生两条完全相同的用户消息。
+             *
+             * deleteLocalImages=false，因此附件文件不会被删除，
+             * 图生图重试仍可继续使用原图。
+             */
+            conversationRepository.deleteMessage(
+                messageId =
                     assistantMessageId,
-                    deleteLocalImages =
-                        false
-                )
+                deleteLocalImages = false
+            )
+
+            conversationRepository.deleteMessage(
+                messageId =
+                    userMessage.id,
+                deleteLocalImages = false
+            )
 
             _uiState.value =
                 _uiState.value.copy(
                     selectedRoute = route,
                     attachedImagePath =
-                        userMessage
-                            .attachedImagePath,
+                        userMessage.attachedImagePath,
                     referencedImagePath =
-                        userMessage
-                            .referencedImagePath
+                        userMessage.referencedImagePath,
+                    referencedImageId = null,
+                    globalError = null
                 )
 
-            prepareSend(
-                userMessage
-                    .optimizedPrompt
-                    ?: userMessage.text
-            )
+            prepareSend(retryText)
         }
     }
 
