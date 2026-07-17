@@ -1,5 +1,9 @@
 package com.example.chatimage.ui
 
+import android.widget.Toast
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.ui.platform.LocalContext
+import com.example.chatimage.util.ShareUtils
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -44,10 +48,16 @@ fun ChatImageApp(
     viewModel: AppViewModel
 ) {
     val state by viewModel.uiState.collectAsState()
-
+    
     var showRouteMenu by remember {
         mutableStateOf(false)
     }
+    
+    var showMoreMenu by remember {
+        mutableStateOf(false)
+    }
+
+    val context = LocalContext.current
 
     if (!state.initialized) {
         Box(
@@ -202,6 +212,108 @@ fun ChatImageApp(
                             contentDescription =
                                 "设置"
                         )
+                    }
+
+                    Box {
+                        IconButton(
+                            onClick = {
+                                showMoreMenu = true
+                            }
+                        ) {
+                            Icon(
+                                imageVector =
+                                    Icons.Default.MoreVert,
+                                contentDescription =
+                                    "更多操作"
+                            )
+                        }
+
+                        DropdownMenu(
+                            expanded = showMoreMenu,
+                            onDismissRequest = {
+                                showMoreMenu = false
+                            }
+                        ) {
+                            DropdownMenuItem(
+                                text = {
+                                    Text(
+                                        "导出当前对话为 Markdown"
+                                    )
+                                },
+                                onClick = {
+                                    showMoreMenu = false
+
+                                    viewModel.exportCurrentMarkdown {
+                                        result ->
+                                        result.onSuccess {
+                                            file ->
+                                            ShareUtils.shareFile(
+                                                context = context,
+                                                file = file,
+                                                chooserTitle =
+                                                    "导出 Markdown 对话"
+                                            ).onFailure {
+                                                error ->
+                                                Toast.makeText(
+                                                    context,
+                                                    error.message
+                                                        ?: "无法分享导出文件",
+                                                    Toast.LENGTH_LONG
+                                                ).show()
+                                            }
+                                        }.onFailure {
+                                            error ->
+                                            Toast.makeText(
+                                                context,
+                                                error.message
+                                                    ?: "导出失败",
+                                                Toast.LENGTH_LONG
+                                            ).show()
+                                        }
+                                    }
+                                }
+                            )
+
+                            DropdownMenuItem(
+                                text = {
+                                    Text(
+                                        "导出当前对话为 JSON"
+                                    )
+                                },
+                                onClick = {
+                                    showMoreMenu = false
+
+                                    viewModel.exportCurrentJson {
+                                        result ->
+                                        result.onSuccess {
+                                            file ->
+                                            ShareUtils.shareFile(
+                                                context = context,
+                                                file = file,
+                                                chooserTitle =
+                                                    "导出 JSON 对话"
+                                            ).onFailure {
+                                                error ->
+                                                Toast.makeText(
+                                                    context,
+                                                    error.message
+                                                        ?: "无法分享导出文件",
+                                                    Toast.LENGTH_LONG
+                                                ).show()
+                                            }
+                                        }.onFailure {
+                                            error ->
+                                            Toast.makeText(
+                                                context,
+                                                error.message
+                                                    ?: "导出失败",
+                                                Toast.LENGTH_LONG
+                                            ).show()
+                                        }
+                                    }
+                                }
+                            )
+                        }
                     }
                 }
             )
