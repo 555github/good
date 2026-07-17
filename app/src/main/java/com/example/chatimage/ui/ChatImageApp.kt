@@ -532,8 +532,7 @@ private val routeEntries = listOf(
     RequestRoute.AUTO,
     RequestRoute.CHAT,
     RequestRoute.IMAGE_GENERATION,
-    RequestRoute.IMAGE_EDIT,
-    RequestRoute.VISION_CHAT
+    RequestRoute.IMAGE_EDIT
 )
 
 private fun routeLabel(
