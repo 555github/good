@@ -100,7 +100,7 @@ fun SettingsDialog(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .verticalScroll(
+                        .horizontalScroll(
                             rememberScrollState()
                         ),
                     horizontalArrangement =
