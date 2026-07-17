@@ -9,8 +9,12 @@
         name="attached_images"
         path="attachments/" />
 
+    <files-path
+        name="exports"
+        path="exports/" />
+
     <cache-path
-        name="cache_images"
+        name="cache"
         path="." />
 
 </paths>
