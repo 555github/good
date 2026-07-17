@@ -26,6 +26,16 @@ jobs:
           distribution: temurin
           java-version: "17"
 
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Apply source fixes
+        shell: bash
+        run: |
+          python scripts/fix_sources.py
+
       - name: Set up Android SDK
         uses: android-actions/setup-android@v4.0.1
 
@@ -51,10 +61,11 @@ jobs:
         shell: bash
         run: |
           java -version
+          python --version
           gradle --version
           sdkmanager --version
 
-      - name: Compile Kotlin first
+      - name: Compile Kotlin
         shell: bash
         run: |
           gradle :app:compileDebugKotlin \
