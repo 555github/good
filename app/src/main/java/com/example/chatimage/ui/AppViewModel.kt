@@ -1579,11 +1579,27 @@ class AppViewModel(
     ) {
         viewModelScope.launch {
             runCatching {
-                apiProfileRepository
-                    .upsert(
-                        profile,
-                        newApiKey
+                val saved =
+                    apiProfileRepository.upsert(
+                        profile = profile,
+                        newApiKey = newApiKey
                     )
+
+                /*
+                 * 如果当前没有激活线路，或新实体明确标记为激活，
+                 * 自动将其设为当前线路。
+                 */
+                if (
+                    apiProfileRepository
+                        .getActive() == null ||
+                    saved.isActive
+                ) {
+                    apiProfileRepository.setActive(
+                        saved.id
+                    )
+                }
+
+                saved
             }.onFailure {
                 showError(
                     it.message
@@ -1647,17 +1663,29 @@ class AppViewModel(
         }
     }
 
-    fun saveSearchProfile(
+     fun saveSearchProfile(
         profile: SearchProfileEntity,
         newApiKey: String?
     ) {
         viewModelScope.launch {
             runCatching {
-                searchProfileRepository
-                    .upsert(
-                        profile,
-                        newApiKey
+                val saved =
+                    searchProfileRepository.upsert(
+                        profile = profile,
+                        newApiKey = newApiKey
                     )
+
+                if (
+                    searchProfileRepository
+                        .getActive() == null ||
+                    saved.isActive
+                ) {
+                    searchProfileRepository.setActive(
+                        saved.id
+                    )
+                }
+
+                saved
             }.onFailure {
                 showError(
                     it.message
