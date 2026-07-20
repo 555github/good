@@ -39,7 +39,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
@@ -4296,7 +4295,7 @@ private fun ParameterHelpButton(
     ) {
         Icon(
             imageVector = Icons.Outlined.Info,
-            contentDescription = "查看$title说明",
+            contentDescription = "查看${title}说明",
             modifier = Modifier.size(15.dp)
         )
     }
