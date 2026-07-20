@@ -65,6 +65,9 @@ class AppViewModel(
     private val promptOptimizer =
         container.promptOptimizer
 
+    private val modelsApiClient =
+        container.modelsApiClient
+
     private val exportUtils =
         container.exportUtils
 
@@ -1180,6 +1183,7 @@ class AppViewModel(
                         text = finalText,
                         diagnostics =
                             outcome.diagnostics,
+                        usage = outcome.value.usage,
                         citations =
                             outcome
                                 .value
@@ -1667,6 +1671,26 @@ class AppViewModel(
                         ?: "保存 API 配置失败"
                 )
             }
+        }
+    }
+
+    fun fetchModels(
+        profileId: String,
+        onResult: (Result<List<String>>) -> Unit
+    ) {
+        viewModelScope.launch {
+            val profile = apiProfileRepository.resolveById(profileId)
+            if (profile == null) {
+                onResult(Result.failure(IllegalStateException("请先保存 API 线路")))
+                return@launch
+            }
+
+            onResult(
+                modelsApiClient.fetch(
+                    resolvedProfile = profile,
+                    settings = _uiState.value.appSettings
+                )
+            )
         }
     }
 

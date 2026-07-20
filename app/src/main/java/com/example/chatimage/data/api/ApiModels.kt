@@ -210,7 +210,17 @@ data class ChatCompletionResult(
     val content: String,
     val toolCalls: List<ToolCall> = emptyList(),
     val finishReason: String? = null,
-    val rawResponsePreview: String? = null
+    val rawResponsePreview: String? = null,
+    val citations: List<Citation> = emptyList(),
+    val searchQueries: List<String> = emptyList(),
+    val usage: TokenUsage = TokenUsage()
+)
+
+data class TokenUsage(
+    val inputTokens: Long? = null,
+    val outputTokens: Long? = null,
+    val totalTokens: Long? = null,
+    val cachedInputTokens: Long? = null
 )
 
 data class SearchResponse(
@@ -248,5 +258,6 @@ data class ToolEngineResult(
     val searchQueries: List<String>,
     val usedToolCalls: Boolean,
     val usedFallback: Boolean,
-    val diagnostics: RequestDiagnostics
+    val diagnostics: RequestDiagnostics,
+    val usage: TokenUsage = TokenUsage()
 )

@@ -340,7 +340,9 @@ private fun MessageMetadata(
         model.message.model,
         model.message.createdAt,
         model.message.durationMs,
-        model.message.httpStatus
+        model.message.httpStatus,
+        model.message.totalTokens,
+        model.message.cachedInputTokens
     ) {
         buildList {
             model.message.model?.takeIf(String::isNotBlank)?.let(::add)
@@ -350,6 +352,16 @@ private fun MessageMetadata(
             }
             if (diagnostics.showHttpStatus) {
                 model.message.httpStatus?.let { add("HTTP $it") }
+            }
+            model.message.totalTokens?.let { total ->
+                add(
+                    buildString {
+                        append("$total tokens")
+                        model.message.cachedInputTokens?.takeIf { it > 0 }?.let {
+                            append("（缓存 $it）")
+                        }
+                    }
+                )
             }
         }.joinToString("  ·  ")
     }

@@ -14,6 +14,7 @@ import org.json.JSONObject
 
 class ToolCallEngine(
     private val chatApiClient: ChatApiClient,
+    private val responsesApiClient: ResponsesApiClient,
     private val searchApiClient: SearchApiClient
 ) {
 
@@ -151,7 +152,8 @@ class ToolCallEngine(
                                         usedToolCalls = true,
                                         usedFallback = false,
                                         diagnostics =
-                                            decision.diagnostics
+                                            decision.diagnostics,
+                                        usage = completion.usage
                                     ),
                                     diagnostics =
                                         decision.diagnostics
@@ -299,6 +301,14 @@ class ToolCallEngine(
                                     allQueries += query
                                     allResults += results
 
+                                    onStatus(
+                                        "已读取：" + results
+                                            .take(3)
+                                            .joinToString("、") { result ->
+                                                result.title.take(28)
+                                            }
+                                    )
+
                                     workingMessages +=
                                         ChatWireMessage(
                                             role = "tool",
@@ -349,7 +359,8 @@ class ToolCallEngine(
                             usedToolCalls = true,
                             usedFallback = false,
                             diagnostics =
-                                finalAnswer.diagnostics
+                                finalAnswer.diagnostics,
+                            usage = finalAnswer.value.usage
                         ),
                         diagnostics =
                             finalAnswer.diagnostics
@@ -444,7 +455,7 @@ class ToolCallEngine(
                 )
 
                 val offlineOutcome =
-                    chatApiClient.complete(
+                    completeWithoutTools(
                         resolvedProfile = apiProfile,
                         appSettings = appSettings,
                         messages = messages,
@@ -470,7 +481,8 @@ class ToolCallEngine(
                                 usedFallback = true,
                                 diagnostics =
                                     offlineOutcome
-                                        .diagnostics
+                                        .diagnostics,
+                                usage = offlineOutcome.value.usage
                             ),
                             diagnostics =
                                 offlineOutcome
@@ -488,6 +500,14 @@ class ToolCallEngine(
         val results = searchOutcome
             .value
             .results
+
+        onStatus(
+            "已读取：" + results
+                .take(3)
+                .joinToString("、") { result ->
+                    result.title.take(28)
+                }
+        )
 
         val searchContext = buildSearchContext(
             appSettings = appSettings,
@@ -524,7 +544,7 @@ class ToolCallEngine(
 
         onStatus("正在根据搜索结果生成回答……")
 
-        val finalOutcome = chatApiClient.complete(
+        val finalOutcome = completeWithoutTools(
             resolvedProfile = apiProfile,
             appSettings = appSettings,
             messages = augmentedMessages,
@@ -555,12 +575,51 @@ class ToolCallEngine(
                         usedFallback = usedFallback,
                         diagnostics =
                             finalOutcome
-                                .diagnostics
+                                .diagnostics,
+                        usage = finalOutcome.value.usage
                     ),
                     diagnostics =
                         finalOutcome.diagnostics
                 )
             }
+        }
+    }
+
+    private suspend fun completeWithoutTools(
+        resolvedProfile: ResolvedApiProfile,
+        appSettings: AppSettings,
+        messages: List<ChatWireMessage>,
+        streamOverride: Boolean? = null,
+        onDelta: suspend (String) -> Unit = {}
+    ): ApiOutcome<ChatCompletionResult> {
+        return if (
+            resolvedProfile.profile.chatPath
+                .trimEnd('/')
+                .endsWith("/responses", ignoreCase = true)
+        ) {
+            val effectiveSettings = if (streamOverride == null) {
+                appSettings
+            } else {
+                appSettings.copy(
+                    chatParameters = appSettings.chatParameters.copy(
+                        streamEnabled = streamOverride
+                    )
+                )
+            }
+            responsesApiClient.complete(
+                resolvedProfile = resolvedProfile,
+                settings = effectiveSettings,
+                messages = messages,
+                onDelta = onDelta
+            )
+        } else {
+            chatApiClient.complete(
+                resolvedProfile = resolvedProfile,
+                appSettings = appSettings,
+                messages = messages,
+                streamOverride = streamOverride,
+                onDelta = onDelta
+            )
         }
     }
 

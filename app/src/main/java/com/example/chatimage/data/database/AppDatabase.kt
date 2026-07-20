@@ -4,6 +4,8 @@ import android.content.Context
 import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
     entities = [
@@ -13,7 +15,7 @@ import androidx.room.RoomDatabase
         ApiProfileEntity::class,
         SearchProfileEntity::class
     ],
-    version = 1,
+    version = 2,
     exportSchema = true
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -42,11 +44,20 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "chatimage_v3.db"
                 )
-                    .fallbackToDestructiveMigration()
+                    .addMigrations(MIGRATION_1_2)
                     .build()
                     .also {
                         instance = it
                     }
+            }
+        }
+
+        private val MIGRATION_1_2 = object : Migration(1, 2) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL("ALTER TABLE messages ADD COLUMN inputTokens INTEGER")
+                database.execSQL("ALTER TABLE messages ADD COLUMN outputTokens INTEGER")
+                database.execSQL("ALTER TABLE messages ADD COLUMN totalTokens INTEGER")
+                database.execSQL("ALTER TABLE messages ADD COLUMN cachedInputTokens INTEGER")
             }
         }
     }

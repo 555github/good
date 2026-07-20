@@ -6,6 +6,8 @@ import com.example.chatimage.data.api.ChatWireMessage
 import com.example.chatimage.data.api.ImageApiClient
 import com.example.chatimage.data.api.ImageGenerationResult
 import com.example.chatimage.data.api.ImageRequestOptions
+import com.example.chatimage.data.api.ResponsesApiClient
+import com.example.chatimage.data.api.TokenUsage
 import com.example.chatimage.data.api.ToolCallEngine
 import com.example.chatimage.data.model.AppSettings
 import com.example.chatimage.data.model.Citation
@@ -14,6 +16,7 @@ import com.example.chatimage.data.model.RequestError
 import com.example.chatimage.data.model.RequestRoute
 import com.example.chatimage.data.model.ToolCallMode
 import com.example.chatimage.data.model.WebSearchMode
+import com.example.chatimage.data.model.WebSearchProvider
 import com.example.chatimage.domain.IntentRouter
 
 data class AssistantAnswer(
@@ -24,11 +27,14 @@ data class AssistantAnswer(
         emptyList(),
     val usedToolCalls: Boolean = false,
     val usedSearchFallback: Boolean =
-        false
+        false,
+    val usage: TokenUsage = TokenUsage()
 )
 
 class AiRequestRepository(
     private val chatApiClient: ChatApiClient,
+    private val responsesApiClient:
+        ResponsesApiClient,
     private val imageApiClient:
         ImageApiClient,
     private val toolCallEngine:
@@ -69,6 +75,63 @@ class AiRequestRepository(
             settings.search
                 .toolCallMode !=
                 ToolCallMode.DISABLED
+
+        val usesResponses = apiProfile.profile.chatPath
+            .trimEnd('/')
+            .endsWith("/responses", ignoreCase = true)
+
+        if (
+            settings.search.provider == WebSearchProvider.MODEL_BUILT_IN &&
+            searchMode != WebSearchMode.OFF
+        ) {
+            if (!usesResponses) {
+                return ApiOutcome.Failure(
+                    error = RequestError(
+                        code = "BUILT_IN_SEARCH_REQUIRES_RESPONSES",
+                        message = "模型内置联网需要将当前线路的聊天接口设为 /responses",
+                        retryable = false
+                    )
+                )
+            }
+
+            val response = responsesApiClient.complete(
+                resolvedProfile = apiProfile,
+                settings = settings,
+                messages = messages,
+                builtInWebSearch = true,
+                onStatus = onStatus,
+                onDelta = onDelta
+            )
+            return mapDirectOutcome(response)
+        }
+
+        if (
+            usesResponses &&
+            settings.search.provider == WebSearchProvider.THIRD_PARTY &&
+            searchMode == WebSearchMode.AUTO &&
+            (toolCallsEnabled || localRuleNeedsSearch)
+        ) {
+            if (searchProfile == null) {
+                return if (settings.search.allowOfflineAnswerAfterFailure) {
+                    directChat(apiProfile, settings, messages, onDelta)
+                } else {
+                    noSearchProfileFailure()
+                }
+            }
+
+            return mapToolOutcome(
+                toolCallEngine.injectedSearchAnswer(
+                    apiProfile = apiProfile,
+                    searchProfile = searchProfile,
+                    appSettings = settings,
+                    messages = messages,
+                    query = userPrompt,
+                    usedFallback = true,
+                    onStatus = onStatus,
+                    onDelta = onDelta
+                )
+            )
+        }
 
         /*
          * 强制搜索始终直接调用搜索 API，不需要让模型先判断。
@@ -208,7 +271,18 @@ class AiRequestRepository(
         messages: List<ChatWireMessage>,
         onDelta: suspend (String) -> Unit
     ): ApiOutcome<AssistantAnswer> {
-        val outcome =
+        val outcome = if (
+            apiProfile.profile.chatPath
+                .trimEnd('/')
+                .endsWith("/responses", ignoreCase = true)
+        ) {
+            responsesApiClient.complete(
+                resolvedProfile = apiProfile,
+                settings = settings,
+                messages = messages,
+                onDelta = onDelta
+            )
+        } else {
             chatApiClient.complete(
                 resolvedProfile =
                     apiProfile,
@@ -216,7 +290,14 @@ class AiRequestRepository(
                 messages = messages,
                 onDelta = onDelta
             )
+        }
 
+        return mapDirectOutcome(outcome)
+    }
+
+    private fun mapDirectOutcome(
+        outcome: ApiOutcome<com.example.chatimage.data.api.ChatCompletionResult>
+    ): ApiOutcome<AssistantAnswer> {
         return when (outcome) {
             is ApiOutcome.Failure -> {
                 outcome
@@ -226,7 +307,11 @@ class AiRequestRepository(
                 ApiOutcome.Success(
                     value = AssistantAnswer(
                         content =
-                            outcome.value.content
+                            outcome.value.content,
+                        citations = outcome.value.citations,
+                        searchQueries = outcome.value.searchQueries,
+                        usedToolCalls = outcome.value.searchQueries.isNotEmpty(),
+                        usage = outcome.value.usage
                     ),
                     diagnostics =
                         outcome.diagnostics
@@ -265,7 +350,8 @@ class AiRequestRepository(
                         usedSearchFallback =
                             outcome
                                 .value
-                                .usedFallback
+                                .usedFallback,
+                        usage = outcome.value.usage
                     ),
                     diagnostics =
                         outcome.diagnostics

@@ -41,6 +41,11 @@ enum class WebSearchMode {
     ALWAYS
 }
 
+enum class WebSearchProvider {
+    THIRD_PARTY,
+    MODEL_BUILT_IN
+}
+
 enum class ToolCallMode {
     DISABLED,
     OPENAI_TOOLS,
@@ -163,6 +168,14 @@ data class ChatParameterSettings(
     val responseFormatMode: String = "NONE",
 
     val responseFormatJson: String = "",
+
+    val reasoningEnabled: Boolean = false,
+
+    val reasoningFieldPath: String = "reasoning.effort",
+
+    val reasoningValue: String = "medium",
+
+    val requestUsage: Boolean = true,
 
     val extraRequestJson: String = "{}"
 )
@@ -319,6 +332,11 @@ data class PromptOptimizationSettings(
 
 data class SearchSettings(
     val mode: WebSearchMode = WebSearchMode.OFF,
+
+    val provider: WebSearchProvider =
+        WebSearchProvider.THIRD_PARTY,
+
+    val builtInToolType: String = "web_search",
 
     val toolCallMode: ToolCallMode =
         ToolCallMode.DISABLED,

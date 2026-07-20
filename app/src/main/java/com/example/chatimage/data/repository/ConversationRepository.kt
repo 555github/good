@@ -16,6 +16,7 @@ import com.example.chatimage.data.model.MessageType
 import com.example.chatimage.data.model.RequestDiagnostics
 import com.example.chatimage.data.model.RequestError
 import com.example.chatimage.data.model.RequestRoute
+import com.example.chatimage.data.api.TokenUsage
 import java.io.File
 import java.util.UUID
 import kotlinx.coroutines.flow.Flow
@@ -391,6 +392,7 @@ class ConversationRepository(
         messageId: String,
         text: String,
         diagnostics: RequestDiagnostics,
+        usage: TokenUsage = TokenUsage(),
         citations: List<Citation> =
             emptyList(),
         searchQueries: List<String> =
@@ -412,6 +414,10 @@ class ConversationRepository(
                 diagnostics.httpStatus,
             durationMs =
                 diagnostics.durationMs,
+            inputTokens = usage.inputTokens,
+            outputTokens = usage.outputTokens,
+            totalTokens = usage.totalTokens,
+            cachedInputTokens = usage.cachedInputTokens,
             requestMetadataJson =
                 diagnosticsToJson(
                     diagnostics

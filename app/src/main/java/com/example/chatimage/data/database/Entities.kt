@@ -84,6 +84,14 @@ data class MessageEntity(
 
     val model: String? = null,
 
+    val inputTokens: Long? = null,
+
+    val outputTokens: Long? = null,
+
+    val totalTokens: Long? = null,
+
+    val cachedInputTokens: Long? = null,
+
     val apiProfileId: String? = null,
 
     val route: String? = null,

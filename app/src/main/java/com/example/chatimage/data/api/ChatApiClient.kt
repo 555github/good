@@ -93,6 +93,25 @@ class ChatApiClient(
                 .put("messages", messageArray)
                 .put("stream", stream)
 
+            if (stream && parameters.requestUsage) {
+                standardJson.put(
+                    "stream_options",
+                    JSONObject().put("include_usage", true)
+                )
+            }
+
+            if (
+                parameters.reasoningEnabled &&
+                parameters.reasoningFieldPath.isNotBlank() &&
+                parameters.reasoningValue.isNotBlank()
+            ) {
+                JsonUtils.putObjectPath(
+                    standardJson,
+                    parameters.reasoningFieldPath,
+                    parameters.reasoningValue
+                )
+            }
+
             if (parameters.temperatureEnabled) {
                 standardJson.put(
                     "temperature",
@@ -408,6 +427,7 @@ class ChatApiClient(
         val completeText = StringBuilder()
 
         var finishReason: String? = null
+        var usage = TokenUsage()
         var parsedJsonCount = 0
 
         while (!source.exhausted()) {
@@ -493,6 +513,10 @@ class ChatApiClient(
                 root,
                 "choices[0].finish_reason"
             ) ?: finishReason
+
+            root.optJSONObject("usage")?.let {
+                usage = parseChatUsage(it)
+            }
         }
 
         if (parsedJsonCount == 0) {
@@ -503,7 +527,8 @@ class ChatApiClient(
 
         return ChatCompletionResult(
             content = completeText.toString(),
-            finishReason = finishReason
+            finishReason = finishReason,
+            usage = usage
         )
     }
 
@@ -569,7 +594,25 @@ class ChatApiClient(
                 root,
                 "choices[0].finish_reason"
             ),
-            rawResponsePreview = body.take(3000)
+            rawResponsePreview = body.take(3000),
+            usage = root.optJSONObject("usage")
+                ?.let(::parseChatUsage)
+                ?: TokenUsage()
+        )
+    }
+
+    private fun parseChatUsage(usage: JSONObject): TokenUsage {
+        fun longOrNull(key: String): Long? =
+            if (usage.has(key) && !usage.isNull(key)) usage.optLong(key) else null
+
+        return TokenUsage(
+            inputTokens = longOrNull("prompt_tokens"),
+            outputTokens = longOrNull("completion_tokens"),
+            totalTokens = longOrNull("total_tokens"),
+            cachedInputTokens = JsonUtils.readString(
+                usage,
+                "prompt_tokens_details.cached_tokens"
+            )?.toLongOrNull()
         )
     }
 

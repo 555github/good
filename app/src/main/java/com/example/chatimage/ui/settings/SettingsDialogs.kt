@@ -52,6 +52,7 @@ import com.example.chatimage.data.model.StreamProtocol
 import com.example.chatimage.data.model.ToolCallMode
 import com.example.chatimage.data.model.ThemeMode
 import com.example.chatimage.data.model.WebSearchMode
+import com.example.chatimage.data.model.WebSearchProvider
 import com.example.chatimage.ui.AppUiState
 import com.example.chatimage.ui.AppViewModel
 import org.json.JSONObject
@@ -901,6 +902,63 @@ private fun ChatSettingsSection(
                                     0
                                 )
                         )
+                )
+            )
+        }
+    )
+
+    SwitchRow(
+        title = "请求 Token 用量统计",
+        description = "流式 Chat Completions 会发送 stream_options.include_usage",
+        checked = chat.requestUsage,
+        onCheckedChange = {
+            onChange(
+                settings.copy(
+                    chatParameters = chat.copy(requestUsage = it)
+                )
+            )
+        }
+    )
+
+    HorizontalDivider()
+    SectionTitle("推理强度")
+
+    SwitchRow(
+        title = "发送推理强度参数",
+        description = "不同模型支持的值不同，请按服务商文档填写",
+        checked = chat.reasoningEnabled,
+        onCheckedChange = {
+            onChange(
+                settings.copy(
+                    chatParameters = chat.copy(reasoningEnabled = it)
+                )
+            )
+        }
+    )
+
+    TextFieldSetting(
+        label = "推理强度字段路径",
+        value = chat.reasoningFieldPath,
+        supportingText = "OpenAI Responses 推荐 reasoning.effort",
+        helpText = "支持点分隔的嵌套字段路径，也可以填写中转站要求的自定义字段名。",
+        onValueChange = {
+            onChange(
+                settings.copy(
+                    chatParameters = chat.copy(reasoningFieldPath = it)
+                )
+            )
+        }
+    )
+
+    TextFieldSetting(
+        label = "推理强度值",
+        value = chat.reasoningValue,
+        supportingText = "常见值：none、low、medium、high、xhigh、max",
+        helpText = "此处不限制枚举，方便兼容不同模型和厂商的自定义值。",
+        onValueChange = {
+            onChange(
+                settings.copy(
+                    chatParameters = chat.copy(reasoningValue = it)
                 )
             )
         }
@@ -1924,6 +1982,35 @@ private fun SearchSettingsSection(
                                     search.mode
                                 )
                         )
+                )
+            )
+        }
+    )
+
+    EnumSelector(
+        label = "联网来源",
+        current = search.provider.name,
+        values = WebSearchProvider.entries.map { it.name },
+        onSelect = {
+            onChange(
+                settings.copy(
+                    search = search.copy(
+                        provider = enumValueOrDefault(it, search.provider)
+                    )
+                )
+            )
+        }
+    )
+
+    TextFieldSetting(
+        label = "模型内置联网工具类型",
+        value = search.builtInToolType,
+        supportingText = "OpenAI Responses 使用 web_search",
+        helpText = "仅在联网来源选择 MODEL_BUILT_IN 且线路使用 /responses 时发送。",
+        onValueChange = {
+            onChange(
+                settings.copy(
+                    search = search.copy(builtInToolType = it)
                 )
             )
         }
@@ -3111,6 +3198,7 @@ fun ApiProfilesDialog(
     if (creating) {
         ApiProfileEditor(
             profile = null,
+            onFetchModels = viewModel::fetchModels,
             onSave = { profile, key ->
                 /*
                  * 使用 saveApiProfile 保存整个实体，
@@ -3132,6 +3220,7 @@ fun ApiProfilesDialog(
     editingProfile?.let { profile ->
         ApiProfileEditor(
             profile = profile,
+            onFetchModels = viewModel::fetchModels,
             onSave = { updated, key ->
                 viewModel.saveApiProfile(
                     updated,
@@ -3150,6 +3239,10 @@ fun ApiProfilesDialog(
 @Composable
 private fun ApiProfileEditor(
     profile: ApiProfileEntity?,
+    onFetchModels: (
+        String,
+        (Result<List<String>>) -> Unit
+    ) -> Unit,
     onSave: (
         ApiProfileEntity,
         String?
@@ -3173,6 +3266,13 @@ private fun ApiProfileEditor(
     var apiKey by remember {
         mutableStateOf("")
     }
+
+    var availableModels by remember(base.id) {
+        mutableStateOf<List<String>>(emptyList())
+    }
+
+    var fetchingModels by remember { mutableStateOf(false) }
+    var modelFetchError by remember { mutableStateOf<String?>(null) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -3239,6 +3339,57 @@ private fun ApiProfileEditor(
                     singleLine = true
                 )
 
+                OutlinedButton(
+                    onClick = {
+                        fetchingModels = true
+                        modelFetchError = null
+                        onFetchModels(base.id) { result ->
+                            fetchingModels = false
+                            result.onSuccess { availableModels = it }
+                                .onFailure {
+                                    modelFetchError = it.message ?: "获取模型列表失败"
+                                }
+                        }
+                    },
+                    enabled = profile != null && !fetchingModels,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(
+                        when {
+                            fetchingModels -> "正在获取模型..."
+                            availableModels.isNotEmpty() ->
+                                "已获取 ${availableModels.size} 个模型，点击刷新"
+                            profile == null -> "保存线路后可获取模型列表"
+                            else -> "一键获取模型列表"
+                        }
+                    )
+                }
+
+                modelFetchError?.let {
+                    Text(it, color = MaterialTheme.colorScheme.error)
+                }
+
+                if (availableModels.isNotEmpty()) {
+                    EnumSelector(
+                        label = "从列表选择聊天模型",
+                        current = draft.chatModel,
+                        values = availableModels,
+                        onSelect = { draft = draft.copy(chatModel = it) }
+                    )
+                    EnumSelector(
+                        label = "从列表选择视觉模型",
+                        current = draft.visionModel,
+                        values = availableModels,
+                        onSelect = { draft = draft.copy(visionModel = it) }
+                    )
+                    EnumSelector(
+                        label = "从列表选择图片模型",
+                        current = draft.imageModel,
+                        values = availableModels,
+                        onSelect = { draft = draft.copy(imageModel = it) }
+                    )
+                }
+
                 TextFieldSetting(
                     label = "聊天模型",
                     value = draft.chatModel,
@@ -3288,9 +3439,32 @@ private fun ApiProfileEditor(
                 HorizontalDivider()
                 SectionTitle("接口路径")
 
+                EnumSelector(
+                    label = "聊天请求格式",
+                    current = if (
+                        draft.chatPath.trimEnd('/').endsWith("/responses", true)
+                    ) {
+                        "RESPONSES"
+                    } else {
+                        "CHAT_COMPLETIONS"
+                    },
+                    values = listOf("CHAT_COMPLETIONS", "RESPONSES"),
+                    onSelect = { format ->
+                        draft = draft.copy(
+                            chatPath = if (format == "RESPONSES") {
+                                "/responses"
+                            } else {
+                                "/chat/completions"
+                            }
+                        )
+                    }
+                )
+
                 TextFieldSetting(
                     label = "聊天接口",
                     value = draft.chatPath,
+                    supportingText = "支持 /chat/completions 或 /responses，也可填写完整地址",
+                    helpText = "Responses 使用独立请求和流式事件解析，并支持模型内置工具。",
                     onValueChange = {
                         draft =
                             draft.copy(
