@@ -1,18 +1,9 @@
 package com.example.chatimage.data.work
 
-import android.app.NotificationChannel
-import android.app.NotificationManager
-import android.app.PendingIntent
 import android.content.Context
-import android.content.Intent
-import android.content.pm.ServiceInfo
-import android.os.Build
-import androidx.core.app.NotificationCompat
 import androidx.work.CoroutineWorker
-import androidx.work.ForegroundInfo
 import androidx.work.WorkerParameters
 import com.example.chatimage.ChatImageApplication
-import com.example.chatimage.MainActivity
 import com.example.chatimage.data.api.ApiOutcome
 import com.example.chatimage.data.model.RequestError
 import com.example.chatimage.data.model.RequestRoute
@@ -29,7 +20,6 @@ class ImageGenerationWorker(
             ?: return Result.failure()
         val userMessageId = inputData.getString(KEY_USER_MESSAGE_ID)
             ?: return Result.failure()
-        trySetForeground()
 
         val container = (applicationContext as ChatImageApplication).container
         val repository = container.conversationRepository
@@ -139,61 +129,9 @@ class ImageGenerationWorker(
         return Result.failure()
     }
 
-    private suspend fun trySetForeground() {
-        try {
-            setForeground(createForegroundInfo())
-        } catch (cancelled: CancellationException) {
-            throw cancelled
-        } catch (_: Exception) {
-            // Some Android versions reject foreground-service startup. WorkManager
-            // can still run and persist this task as regular constrained work.
-        }
-    }
-
-    private fun createForegroundInfo(): ForegroundInfo {
-        val manager = applicationContext.getSystemService(
-            Context.NOTIFICATION_SERVICE
-        ) as NotificationManager
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            manager.createNotificationChannel(
-                NotificationChannel(
-                    CHANNEL_ID,
-                    "图片生成任务",
-                    NotificationManager.IMPORTANCE_LOW
-                )
-            )
-        }
-        val intent = Intent(applicationContext, MainActivity::class.java)
-        val pendingIntent = PendingIntent.getActivity(
-            applicationContext,
-            0,
-            intent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
-        val notification = NotificationCompat.Builder(applicationContext, CHANNEL_ID)
-            .setSmallIcon(android.R.drawable.ic_menu_gallery)
-            .setContentTitle("ChatImage 正在生成图片")
-            .setContentText("可以离开应用，完成后结果会保存到原对话")
-            .setOngoing(true)
-            .setContentIntent(pendingIntent)
-            .build()
-
-        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            ForegroundInfo(
-                NOTIFICATION_ID,
-                notification,
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
-            )
-        } else {
-            ForegroundInfo(NOTIFICATION_ID, notification)
-        }
-    }
-
     companion object {
         const val KEY_ASSISTANT_ID = "assistant_id"
         const val KEY_USER_MESSAGE_ID = "user_message_id"
         const val WORK_PREFIX = "image-generation-"
-        private const val CHANNEL_ID = "image_generation"
-        private const val NOTIFICATION_ID = 3102
     }
 }
