@@ -63,6 +63,14 @@ jobs:
             --stacktrace \
             --console=plain
 
+      - name: Run unit tests
+        shell: bash
+        run: |
+          gradle :app:testDebugUnitTest \
+            --no-daemon \
+            --stacktrace \
+            --console=plain
+
       - name: Build debug APK
         shell: bash
         run: |

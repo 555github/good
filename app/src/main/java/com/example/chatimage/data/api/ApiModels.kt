@@ -20,9 +20,46 @@ sealed interface ApiOutcome<out T> {
     ) : ApiOutcome<Nothing>
 }
 
+sealed interface ChatContentPart {
+
+    fun toJson(): JSONObject
+
+    data class Text(
+        val text: String
+    ) : ChatContentPart {
+
+        override fun toJson(): JSONObject {
+            return JSONObject()
+                .put("type", "text")
+                .put("text", text)
+        }
+    }
+
+    data class ImageUrl(
+        val url: String,
+        val detail: String? = null
+    ) : ChatContentPart {
+
+        override fun toJson(): JSONObject {
+            val imageUrl = JSONObject()
+                .put("url", url)
+
+            if (!detail.isNullOrBlank()) {
+                imageUrl.put("detail", detail)
+            }
+
+            return JSONObject()
+                .put("type", "image_url")
+                .put("image_url", imageUrl)
+        }
+    }
+}
+
 data class ChatWireMessage(
     val role: String,
     val content: String? = null,
+    val contentParts: List<ChatContentPart> =
+        emptyList(),
     val name: String? = null,
     val toolCallId: String? = null,
     val toolCalls: List<ToolCall> = emptyList()
@@ -32,7 +69,15 @@ data class ChatWireMessage(
         val result = JSONObject()
             .put("role", role)
 
-        if (content != null) {
+        if (contentParts.isNotEmpty()) {
+            val array = JSONArray()
+
+            contentParts.forEach { part ->
+                array.put(part.toJson())
+            }
+
+            result.put("content", array)
+        } else if (content != null) {
             result.put("content", content)
         } else if (toolCalls.isNotEmpty()) {
             result.put("content", JSONObject.NULL)

@@ -42,6 +42,26 @@ class IntentRouter {
         }
 
         /*
+         * 视觉分析必须由用户手动选择。它优先使用本次通过
+         * 回形针附加的图片，不改变自动模式默认进入图生图的行为。
+         */
+        if (
+            manuallySelectedRoute ==
+            RequestRoute.VISION_CHAT
+        ) {
+            return RouteDecision(
+                route =
+                    RequestRoute.VISION_CHAT,
+                reason =
+                    "使用用户手动选择的视觉分析模式",
+                sourceImagePath =
+                    attachedImagePath,
+                requiresConfirmation =
+                    attachedImagePath.isNullOrBlank()
+            )
+        }
+
+        /*
          * 回形针上传的图片优先于自动引用上文图片。
          */
         if (!attachedImagePath.isNullOrBlank()) {

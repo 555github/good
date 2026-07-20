@@ -544,6 +544,18 @@ class AppViewModel(
         }
 
         if (
+            decision.route ==
+            RequestRoute.VISION_CHAT &&
+            decision.sourceImagePath
+                .isNullOrBlank()
+        ) {
+            showError(
+                "视觉分析需要先选择一张图片"
+            )
+            return
+        }
+
+        if (
             decision.requiresConfirmation &&
             state.appSettings
                 .imageIntent
@@ -994,7 +1006,12 @@ class AppViewModel(
                                 apiProfile =
                                     apiProfile,
                                 settings =
-                                    state.appSettings
+                                    state.appSettings,
+                                route = route,
+                                model = model,
+                                visionImagePath =
+                                    decision
+                                        .sourceImagePath
                             )
                         }
                     }
@@ -1042,7 +1059,10 @@ class AppViewModel(
             com.example.chatimage
                 .data.repository
                 .ResolvedApiProfile,
-        settings: AppSettings
+        settings: AppSettings,
+        route: RequestRoute,
+        model: String,
+        visionImagePath: String?
     ) {
         val databaseMessages =
             conversationRepository
@@ -1050,14 +1070,46 @@ class AppViewModel(
                     conversationId
                 )
 
+        val currentUserImageDataUrl =
+            if (
+                route == RequestRoute.VISION_CHAT
+            ) {
+                val imagePath = visionImagePath
+                    ?: throw IllegalStateException(
+                        "视觉分析缺少图片"
+                    )
+
+                withContext(Dispatchers.IO) {
+                    ImageFileUtils.fileToBase64(
+                        file = File(imagePath),
+                        includeDataUrlPrefix = true
+                    )
+                }
+            } else {
+                null
+            }
+
         val messages =
             contextManager
                 .buildChatMessages(
                     databaseMessages =
                         databaseMessages,
                     settings = settings,
-                    currentUserText = prompt
+                    currentUserText = prompt,
+                    currentUserImageDataUrl =
+                        currentUserImageDataUrl
                 )
+
+        val requestApiProfile =
+            if (route == RequestRoute.VISION_CHAT) {
+                apiProfile.copy(
+                    profile = apiProfile.profile.copy(
+                        chatModel = model
+                    )
+                )
+            } else {
+                apiProfile
+            }
 
         val searchProfile =
             searchProfileRepository
@@ -1068,7 +1120,7 @@ class AppViewModel(
         val outcome =
             aiRequestRepository.answerChat(
                 apiProfile =
-                    apiProfile,
+                    requestApiProfile,
                 searchProfile =
                     searchProfile,
                 settings = settings,

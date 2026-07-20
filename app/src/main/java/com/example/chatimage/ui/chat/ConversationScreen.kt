@@ -206,7 +206,14 @@ fun ConversationScreen(
             SourceImagePreview(
                 path = path,
                 label =
-                    "已附加图片，将优先进行图生图",
+                    if (
+                        state.selectedRoute ==
+                        RequestRoute.VISION_CHAT
+                    ) {
+                        "已附加图片，将发送给视觉模型"
+                    } else {
+                        "已附加图片，将优先进行图生图"
+                    },
                 onRemove = {
                     viewModel.clearAttachment()
                 }
@@ -526,6 +533,11 @@ private fun inputPlaceholder(
     state: AppUiState
 ): String {
     return when {
+        state.attachedImagePath != null &&
+            state.selectedRoute ==
+            RequestRoute.VISION_CHAT ->
+            "输入对这张图片的分析问题"
+
         state.referencedImagePath != null ->
             "描述如何修改这张图片"
 
