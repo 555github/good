@@ -82,7 +82,7 @@ class AiRequestRepository(
 
         if (
             settings.search.provider == WebSearchProvider.MODEL_BUILT_IN &&
-            searchMode != WebSearchMode.OFF
+            (searchMode != WebSearchMode.OFF || forceSearch)
         ) {
             if (!usesResponses) {
                 return ApiOutcome.Failure(

@@ -4307,6 +4307,7 @@ private fun NumberField(
     onValueChange: (Int) -> Unit
 ) {
     var text by remember { mutableStateOf(value.toString()) }
+    var validationMessage by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(text) {
         delay(450)
@@ -4314,8 +4315,12 @@ private fun NumberField(
     }
 
     LaunchedEffect(value) {
-        if (text.toIntOrNull() == value) {
+        val entered = text.toIntOrNull()
+        if (entered != null && entered != value) {
+            validationMessage = "输入值 $entered 不受支持，已修正为 $value"
             text = value.toString()
+        } else if (entered == value) {
+            validationMessage = null
         }
     }
 
@@ -4335,6 +4340,8 @@ private fun NumberField(
         supportingText =
             if (text.isBlank()) {
                 { Text("请输入数字；清空时不会自动恢复默认值") }
+            } else if (validationMessage != null) {
+                { Text(validationMessage.orEmpty()) }
             } else if (supportingText.isBlank()) {
                 null
             } else {
@@ -4359,13 +4366,24 @@ private fun LongField(
     helpText: String = "",
     onValueChange: (Long) -> Unit
 ) {
-    var text by remember(value) {
+    var text by remember {
         mutableStateOf(value.toString())
     }
+    var validationMessage by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(text) {
         delay(450)
         text.toLongOrNull()?.let(onValueChange)
+    }
+
+    LaunchedEffect(value) {
+        val entered = text.toLongOrNull()
+        if (entered != null && entered != value) {
+            validationMessage = "输入值 $entered 不受支持，已修正为 $value"
+            text = value.toString()
+        } else if (entered == value) {
+            validationMessage = null
+        }
     }
 
     OutlinedTextField(
@@ -4392,6 +4410,8 @@ private fun LongField(
         isError = text.isBlank() || text == "-",
         supportingText = if (text.isBlank() || text == "-") {
             { Text("请输入数字；清空时不会自动恢复默认值") }
+        } else if (validationMessage != null) {
+            { Text(validationMessage.orEmpty()) }
         } else if (supportingText.isBlank()) {
             null
         } else {

@@ -35,6 +35,7 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.SmartToy
+import androidx.compose.material.icons.filled.ZoomIn
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.HorizontalDivider
@@ -447,7 +448,7 @@ private fun CompactImageActions(
             .horizontalScroll(rememberScrollState()),
         horizontalArrangement = Arrangement.End
     ) {
-        SmallActionButton(Icons.Default.SmartToy, "全屏查看", onView)
+        SmallActionButton(Icons.Default.ZoomIn, "全屏查看", onView)
         SmallActionButton(Icons.Default.Edit, "继续编辑", onEdit)
         SmallActionButton(Icons.Default.Save, "保存图片", onSave)
         SmallActionButton(Icons.Default.Share, "分享图片", onShare)

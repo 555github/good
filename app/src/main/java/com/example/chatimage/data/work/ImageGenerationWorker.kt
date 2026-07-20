@@ -112,7 +112,6 @@ class ImageGenerationWorker(
                 }
             }
         } catch (cancelled: CancellationException) {
-            repository.cancelMessage(assistantId)
             throw cancelled
         } catch (exception: Exception) {
             repository.failMessage(
