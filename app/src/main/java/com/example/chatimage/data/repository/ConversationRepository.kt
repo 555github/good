@@ -255,7 +255,8 @@ class ConversationRepository(
         route: RequestRoute,
         attachedImagePath: String? = null,
         referencedImagePath: String? = null,
-        apiProfileId: String? = null
+        apiProfileId: String? = null,
+        model: String? = null
     ): MessageEntity {
         val now = System.currentTimeMillis()
 
@@ -286,6 +287,7 @@ class ConversationRepository(
             status =
                 MessageStatus.COMPLETED.name,
             apiProfileId = apiProfileId,
+            model = model,
             route = route.name,
             createdAt = now,
             updatedAt = now

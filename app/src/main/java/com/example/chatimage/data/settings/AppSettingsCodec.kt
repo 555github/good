@@ -1448,6 +1448,14 @@ object AppSettingsCodec {
                 value.fontScale.toDouble()
             )
             .put(
+                "messageSpacingDp",
+                value.messageSpacingDp
+            )
+            .put(
+                "messagePaddingDp",
+                value.messagePaddingDp
+            )
+            .put(
                 "messageWidthFraction",
                 value.messageWidthFraction
                     .toDouble()
@@ -1510,6 +1518,14 @@ object AppSettingsCodec {
                 "fontScale",
                 defaults.fontScale.toDouble()
             ).toFloat(),
+            messageSpacingDp = json.optInt(
+                "messageSpacingDp",
+                defaults.messageSpacingDp
+            ),
+            messagePaddingDp = json.optInt(
+                "messagePaddingDp",
+                defaults.messagePaddingDp
+            ),
             messageWidthFraction =
                 json.optDouble(
                     "messageWidthFraction",

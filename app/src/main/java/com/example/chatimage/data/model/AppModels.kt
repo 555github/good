@@ -467,6 +467,10 @@ data class AppearanceSettings(
 
     val fontScale: Float = 1.0f,
 
+    val messageSpacingDp: Int = 8,
+
+    val messagePaddingDp: Int = 10,
+
     val messageWidthFraction: Float = 0.94f,
 
     val imagePreviewHeightDp: Int = 340,

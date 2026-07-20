@@ -891,7 +891,8 @@ class AppViewModel(
                     referencedImagePath =
                         decision.sourceImagePath,
                     apiProfileId =
-                        apiProfile.profile.id
+                        apiProfile.profile.id,
+                    model = model
                 )
 
         conversationRepository
@@ -1115,7 +1116,8 @@ class AppViewModel(
             searchProfileRepository
                 .getResolvedActive()
 
-        var accumulatedText = ""
+        val accumulatedText = StringBuilder()
+        var lastPersistAt = 0L
 
         val outcome =
             aiRequestRepository.answerChat(
@@ -1136,18 +1138,18 @@ class AppViewModel(
                         )
                 },
                 onDelta = { fragment ->
-                    accumulatedText += fragment
+                    accumulatedText.append(fragment)
+                    val now = System.currentTimeMillis()
 
-                    conversationRepository
-                        .updateMessageText(
-                            messageId =
-                                assistant.id,
-                            text =
-                                accumulatedText,
-                            status =
-                                MessageStatus
-                                    .RUNNING
-                        )
+                    if (now - lastPersistAt >= 120L) {
+                        lastPersistAt = now
+                        conversationRepository
+                            .updateMessageText(
+                                messageId = assistant.id,
+                                text = accumulatedText.toString(),
+                                status = MessageStatus.RUNNING
+                            )
+                    }
                 }
             )
 
@@ -1168,7 +1170,7 @@ class AppViewModel(
                 val finalText =
                     outcome.value.content
                         .ifBlank {
-                            accumulatedText
+                            accumulatedText.toString()
                         }
 
                 conversationRepository
@@ -1314,6 +1316,13 @@ class AppViewModel(
 
     fun newConversation() {
         viewModelScope.launch {
+            if (
+                _uiState.value.currentConversationId != null &&
+                _uiState.value.messages.isEmpty()
+            ) {
+                return@launch
+            }
+
             stopGeneration()
 
             val created =

@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
@@ -14,6 +15,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
@@ -30,12 +32,14 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
@@ -47,11 +51,13 @@ import com.example.chatimage.data.model.ImageEditTransport
 import com.example.chatimage.data.model.RetryMode
 import com.example.chatimage.data.model.StreamProtocol
 import com.example.chatimage.data.model.ToolCallMode
+import com.example.chatimage.data.model.ThemeMode
 import com.example.chatimage.data.model.WebSearchMode
 import com.example.chatimage.ui.AppUiState
 import com.example.chatimage.ui.AppViewModel
 import org.json.JSONObject
 import java.util.UUID
+import kotlinx.coroutines.delay
 
 private enum class SettingsSection(
     val displayName: String
@@ -351,8 +357,25 @@ private fun GeneralSettings(
     HorizontalDivider()
     SectionTitle("界面")
 
+    EnumSelector(
+        label = "主题",
+        current = settings.appearance.themeMode.name,
+        values = ThemeMode.entries.map { it.name },
+        onSelect = { selected ->
+            onChange(
+                settings.copy(
+                    appearance = settings.appearance.copy(
+                        themeMode = ThemeMode.valueOf(selected)
+                    )
+                )
+            )
+        }
+    )
+
     DecimalField(
         label = "字体缩放",
+        supportingText = "推荐 1.0；支持 0.7 - 2.0",
+        helpText = "同时缩放聊天消息、设置和按钮文字。系统字体大小仍会继续生效。",
         value =
             settings.appearance
                 .fontScale
@@ -376,6 +399,8 @@ private fun GeneralSettings(
 
     DecimalField(
         label = "用户消息宽度比例",
+        supportingText = "推荐 0.94；支持 0.55 - 0.98",
+        helpText = "控制用户消息气泡占聊天区域的最大宽度，助手消息保持接近全宽。",
         value =
             settings.appearance
                 .messageWidthFraction
@@ -399,6 +424,8 @@ private fun GeneralSettings(
 
     NumberField(
         label = "图片预览高度（dp）",
+        supportingText = "推荐 340；支持 160 - 1000",
+        helpText = "只影响聊天列表中的预览高度，不会改变原图分辨率。",
         value =
             settings.appearance
                 .imagePreviewHeightDp,
@@ -413,6 +440,38 @@ private fun GeneralSettings(
                                     1000
                                 )
                         )
+                )
+            )
+        }
+    )
+
+    NumberField(
+        label = "消息间距（dp）",
+        value = settings.appearance.messageSpacingDp,
+        supportingText = "紧凑 4；推荐 8；宽松 14",
+        helpText = "控制相邻两条消息之间的垂直距离。",
+        onValueChange = {
+            onChange(
+                settings.copy(
+                    appearance = settings.appearance.copy(
+                        messageSpacingDp = it.coerceIn(2, 24)
+                    )
+                )
+            )
+        }
+    )
+
+    NumberField(
+        label = "消息内边距（dp）",
+        value = settings.appearance.messagePaddingDp,
+        supportingText = "紧凑 6；推荐 10；宽松 16",
+        helpText = "控制文字、图片和操作栏与消息气泡边缘的距离。",
+        onValueChange = {
+            onChange(
+                settings.copy(
+                    appearance = settings.appearance.copy(
+                        messagePaddingDp = it.coerceIn(4, 24)
+                    )
                 )
             )
         }
@@ -4012,6 +4071,7 @@ private fun TextFieldSetting(
     label: String,
     value: String,
     supportingText: String = "",
+    helpText: String = "",
     onValueChange: (String) -> Unit
 ) {
     OutlinedTextField(
@@ -4021,6 +4081,9 @@ private fun TextFieldSetting(
         modifier = Modifier.fillMaxWidth(),
         label = {
             Text(label)
+        },
+        trailingIcon = helpText.takeIf(String::isNotBlank)?.let {
+            { ParameterHelpButton(label, it) }
         },
         supportingText =
             if (supportingText.isBlank()) {
@@ -4067,28 +4130,39 @@ private fun NumberField(
     label: String,
     value: Int,
     supportingText: String = "",
+    helpText: String = "",
     onValueChange: (Int) -> Unit
 ) {
-    OutlinedTextField(
-        value = value.toString(),
-        onValueChange = {
-            val parsed =
-                it.filter { character ->
-                    character.isDigit()
-                }.toIntOrNull()
+    var text by remember { mutableStateOf(value.toString()) }
 
-            if (parsed != null) {
-                onValueChange(parsed)
-            } else if (it.isBlank()) {
-                onValueChange(0)
-            }
+    LaunchedEffect(text) {
+        delay(450)
+        text.toIntOrNull()?.let(onValueChange)
+    }
+
+    LaunchedEffect(value) {
+        if (text.toIntOrNull() == value) {
+            text = value.toString()
+        }
+    }
+
+    OutlinedTextField(
+        value = text,
+        onValueChange = { newText ->
+            text = newText.filter(Char::isDigit)
         },
         modifier = Modifier.fillMaxWidth(),
         label = {
             Text(label)
         },
+        trailingIcon = helpText.takeIf(String::isNotBlank)?.let {
+            { ParameterHelpButton(label, it) }
+        },
+        isError = text.isBlank(),
         supportingText =
-            if (supportingText.isBlank()) {
+            if (text.isBlank()) {
+                { Text("请输入数字；清空时不会自动恢复默认值") }
+            } else if (supportingText.isBlank()) {
                 null
             } else {
                 {
@@ -4109,10 +4183,16 @@ private fun LongField(
     label: String,
     value: Long,
     supportingText: String = "",
+    helpText: String = "",
     onValueChange: (Long) -> Unit
 ) {
     var text by remember(value) {
         mutableStateOf(value.toString())
+    }
+
+    LaunchedEffect(text) {
+        delay(450)
+        text.toLongOrNull()?.let(onValueChange)
     }
 
     OutlinedTextField(
@@ -4128,19 +4208,18 @@ private fun LongField(
 
             text = filtered
 
-            filtered.toLongOrNull()?.let {
-                onValueChange(it)
-            }
-
-            if (filtered.isBlank()) {
-                onValueChange(0L)
-            }
         },
         modifier = Modifier.fillMaxWidth(),
         label = {
             Text(label)
         },
-        supportingText = if (supportingText.isBlank()) {
+        trailingIcon = helpText.takeIf(String::isNotBlank)?.let {
+            { ParameterHelpButton(label, it) }
+        },
+        isError = text.isBlank() || text == "-",
+        supportingText = if (text.isBlank() || text == "-") {
+            { Text("请输入数字；清空时不会自动恢复默认值") }
+        } else if (supportingText.isBlank()) {
             null
         } else {
             {
@@ -4159,6 +4238,7 @@ private fun DecimalField(
     label: String,
     value: Double,
     supportingText: String = "",
+    helpText: String = "",
     onValueChange: (Double) -> Unit
 ) {
     var text by remember(value) {
@@ -4185,6 +4265,10 @@ private fun DecimalField(
         label = {
             Text(label)
         },
+        trailingIcon = helpText.takeIf(String::isNotBlank)?.let {
+            { ParameterHelpButton(label, it) }
+        },
+        isError = text.isBlank() || text == "-" || text == ".",
         supportingText = if (supportingText.isBlank()) {
             null
         } else {
@@ -4197,6 +4281,38 @@ private fun DecimalField(
         ),
         singleLine = true
     )
+}
+
+@Composable
+private fun ParameterHelpButton(
+    title: String,
+    helpText: String
+) {
+    var showHelp by remember { mutableStateOf(false) }
+
+    IconButton(
+        onClick = { showHelp = true },
+        modifier = Modifier.size(28.dp)
+    ) {
+        Icon(
+            imageVector = Icons.Outlined.Info,
+            contentDescription = "查看$title说明",
+            modifier = Modifier.size(15.dp)
+        )
+    }
+
+    if (showHelp) {
+        AlertDialog(
+            onDismissRequest = { showHelp = false },
+            title = { Text(title) },
+            text = { Text(helpText) },
+            confirmButton = {
+                TextButton(onClick = { showHelp = false }) {
+                    Text("知道了")
+                }
+            }
+        )
+    }
 }
 
 @Composable

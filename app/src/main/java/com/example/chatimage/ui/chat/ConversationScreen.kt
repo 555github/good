@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -23,6 +24,8 @@ import androidx.compose.material.icons.filled.Public
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.AssistChip
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -62,6 +65,10 @@ fun ConversationScreen(
         mutableStateOf("")
     }
 
+    var pendingImageUri by remember {
+        mutableStateOf<Uri?>(null)
+    }
+
     val imagePicker =
         rememberLauncherForActivityResult(
             contract =
@@ -69,7 +76,11 @@ fun ConversationScreen(
                     .GetContent()
         ) { uri: Uri? ->
             uri?.let {
-                viewModel.selectAttachment(it)
+                if (state.selectedRoute == RequestRoute.AUTO) {
+                    pendingImageUri = it
+                } else {
+                    viewModel.selectAttachment(it)
+                }
             }
         }
 
@@ -78,21 +89,27 @@ fun ConversationScreen(
         state.messages
             .lastOrNull()
             ?.message
-            ?.text,
-        state.messages
-            .lastOrNull()
-            ?.images
-            ?.size
+            ?.text
+            ?.length
+            ?.div(240),
+        state.messages.lastOrNull()?.images?.size
     ) {
+        val lastIndex = state.messages.lastIndex
+        val lastVisible = listState.layoutInfo
+            .visibleItemsInfo
+            .lastOrNull()
+            ?.index
+            ?: lastIndex
+        val nearBottom = lastVisible >= lastIndex - 1
+
         if (
             state.appSettings
                 .appearance
                 .autoScroll &&
-            state.messages.isNotEmpty()
+            state.messages.isNotEmpty() &&
+            nearBottom
         ) {
-            listState.animateScrollToItem(
-                state.messages.lastIndex
-            )
+            listState.scrollToItem(lastIndex)
         }
     }
 
@@ -114,7 +131,12 @@ fun ConversationScreen(
                     .fillMaxWidth()
                     .padding(horizontal = 10.dp),
                 verticalArrangement =
-                    Arrangement.spacedBy(10.dp)
+                    Arrangement.spacedBy(
+                        state.appSettings.appearance
+                            .messageSpacingDp
+                            .coerceIn(2, 24)
+                            .dp
+                    )
             ) {
                 items(
                     items = state.messages,
@@ -246,7 +268,8 @@ fun ConversationScreen(
                         "image/*"
                     )
                 },
-                enabled = !state.loading
+                enabled = !state.loading,
+                modifier = Modifier.size(52.dp)
             ) {
                 Icon(
                     imageVector =
@@ -261,7 +284,8 @@ fun ConversationScreen(
                     viewModel
                         .cycleSearchForNextRequest()
                 },
-                enabled = !state.loading
+                enabled = !state.loading,
+                modifier = Modifier.size(52.dp)
             ) {
                 Icon(
                     imageVector =
@@ -329,7 +353,8 @@ fun ConversationScreen(
                 IconButton(
                     onClick = {
                         viewModel.stopGeneration()
-                    }
+                    },
+                    modifier = Modifier.size(52.dp)
                 ) {
                     Icon(
                         imageVector =
@@ -355,7 +380,8 @@ fun ConversationScreen(
                                     .clearFocus()
                             }
                         }
-                    }
+                    },
+                    modifier = Modifier.size(52.dp)
                 ) {
                     Icon(
                         imageVector =
@@ -366,6 +392,43 @@ fun ConversationScreen(
                 }
             }
         }
+    }
+
+    pendingImageUri?.let { uri ->
+        AlertDialog(
+            onDismissRequest = { pendingImageUri = null },
+            title = { Text("这张图片要用来做什么？") },
+            text = {
+                Text("选择“理解图片”会把图片交给视觉模型分析；选择“编辑图片”会进入图生图。")
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        viewModel.setSelectedRoute(RequestRoute.VISION_CHAT)
+                        viewModel.selectAttachment(uri)
+                        pendingImageUri = null
+                    }
+                ) {
+                    Text("理解图片")
+                }
+            },
+            dismissButton = {
+                Row {
+                    TextButton(
+                        onClick = {
+                            viewModel.setSelectedRoute(RequestRoute.IMAGE_EDIT)
+                            viewModel.selectAttachment(uri)
+                            pendingImageUri = null
+                        }
+                    ) {
+                        Text("编辑图片")
+                    }
+                    TextButton(onClick = { pendingImageUri = null }) {
+                        Text("取消")
+                    }
+                }
+            }
+        )
     }
 }
 

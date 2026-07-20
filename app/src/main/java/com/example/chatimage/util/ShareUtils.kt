@@ -3,7 +3,9 @@ package com.example.chatimage.util
 import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
+import android.media.MediaScannerConnection
 import android.os.Build
+import android.os.Environment
 import android.provider.MediaStore
 import androidx.core.content.FileProvider
 import java.io.File
@@ -114,15 +116,6 @@ object ShareUtils {
                 "图片文件不存在"
             }
 
-            if (
-                Build.VERSION.SDK_INT <
-                Build.VERSION_CODES.Q
-            ) {
-                throw UnsupportedOperationException(
-                    "当前版本仅支持 Android 10 及以上直接保存相册"
-                )
-            }
-
             val mimeType =
                 mimeTypeForFile(
                     sourceFile
@@ -138,6 +131,24 @@ object ShareUtils {
                                 mimeType
                             )
                         }
+
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+                val pictures = context.getExternalFilesDir(
+                    Environment.DIRECTORY_PICTURES
+                ) ?: context.filesDir
+                val targetDirectory = File(pictures, "ChatImage").apply {
+                    mkdirs()
+                }
+                val target = File(targetDirectory, displayName)
+                sourceFile.copyTo(target, overwrite = true)
+                MediaScannerConnection.scanFile(
+                    context,
+                    arrayOf(target.absolutePath),
+                    arrayOf(mimeType),
+                    null
+                )
+                return@runCatching target.absolutePath
+            }
 
             val values =
                 ContentValues().apply {

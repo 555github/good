@@ -189,7 +189,10 @@ fun ChatImageApp(
                     IconButton(
                         onClick = {
                             viewModel.newConversation()
-                        }
+                        },
+                        enabled =
+                            state.currentConversationId == null ||
+                                state.messages.isNotEmpty()
                     ) {
                         Icon(
                             imageVector =
