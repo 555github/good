@@ -53,6 +53,18 @@ sealed interface ChatContentPart {
                 .put("image_url", imageUrl)
         }
     }
+
+    data class InputFile(
+        val fileName: String,
+        val dataUrl: String
+    ) : ChatContentPart {
+        override fun toJson(): JSONObject {
+            return JSONObject()
+                .put("type", "input_file")
+                .put("filename", fileName)
+                .put("file_data", dataUrl)
+        }
+    }
 }
 
 data class ChatWireMessage(

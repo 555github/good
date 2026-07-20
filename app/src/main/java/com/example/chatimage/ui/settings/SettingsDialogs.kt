@@ -4549,9 +4549,9 @@ private fun EnumSelector(
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Text(
-                    text = current.ifBlank {
-                        "请选择"
-                    },
+                    text = current.takeIf(String::isNotBlank)
+                        ?.let(::enumDisplayName)
+                        ?: "请选择",
                     modifier = Modifier.weight(1f)
                 )
 
@@ -4567,7 +4567,7 @@ private fun EnumSelector(
                 values.distinct().forEach { value ->
                     DropdownMenuItem(
                         text = {
-                            Text(value)
+                            Text(enumDisplayName(value))
                         },
                         onClick = {
                             onSelect(value)
@@ -4577,6 +4577,24 @@ private fun EnumSelector(
                 }
             }
         }
+    }
+}
+
+private fun enumDisplayName(value: String): String {
+    return when (value) {
+        "SYSTEM" -> "跟随系统"
+        "LIGHT" -> "浅色"
+        "DARK" -> "深色"
+        "THIRD_PARTY" -> "第三方搜索 API"
+        "MODEL_BUILT_IN" -> "模型内置工具"
+        "CHAT_COMPLETIONS" -> "Chat Completions"
+        "RESPONSES" -> "Responses"
+        "OFF" -> "关闭"
+        "AUTO" -> "自动"
+        "ALWAYS" -> "始终开启"
+        "DISABLED" -> "关闭"
+        "OPENAI_TOOLS" -> "兼容 Tool Calls"
+        else -> value
     }
 }
 

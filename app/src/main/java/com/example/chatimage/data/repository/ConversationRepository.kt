@@ -29,6 +29,10 @@ class ConversationRepository(
     private val messageImageDao: MessageImageDao
 ) {
 
+    suspend fun getMessageById(messageId: String): MessageEntity? {
+        return messageDao.getById(messageId)
+    }
+
     fun observeConversations():
         Flow<List<ConversationEntity>> {
         return conversationDao.observeAll()
@@ -220,6 +224,10 @@ class ConversationRepository(
                             File(path).delete()
                         }
                     }
+
+                item.message.attachedFilePath?.let { path ->
+                    runCatching { File(path).delete() }
+                }
             }
         }
 
@@ -255,6 +263,9 @@ class ConversationRepository(
         text: String,
         route: RequestRoute,
         attachedImagePath: String? = null,
+        attachedFilePath: String? = null,
+        attachedFileName: String? = null,
+        attachedFileMimeType: String? = null,
         referencedImagePath: String? = null,
         apiProfileId: String? = null,
         model: String? = null
@@ -283,6 +294,9 @@ class ConversationRepository(
             originalPrompt = text,
             attachedImagePath =
                 attachedImagePath,
+            attachedFilePath = attachedFilePath,
+            attachedFileName = attachedFileName,
+            attachedFileMimeType = attachedFileMimeType,
             referencedImagePath =
                 referencedImagePath,
             status =

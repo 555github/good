@@ -4,6 +4,13 @@ import android.app.Application
 import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import androidx.work.BackoffPolicy
+import androidx.work.Constraints
+import androidx.work.ExistingWorkPolicy
+import androidx.work.NetworkType
+import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.WorkManager
+import androidx.work.workDataOf
 import com.example.chatimage.ChatImageApplication
 import com.example.chatimage.data.api.ApiOutcome
 import com.example.chatimage.data.api.ImageRequestOptions
@@ -11,6 +18,7 @@ import com.example.chatimage.data.database.ApiProfileEntity
 import com.example.chatimage.data.database.MessageEntity
 import com.example.chatimage.data.database.MessageImageEntity
 import com.example.chatimage.data.database.SearchProfileEntity
+import com.example.chatimage.data.work.ImageGenerationWorker
 import com.example.chatimage.data.model.AppSettings
 import com.example.chatimage.data.model.MessageStatus
 import com.example.chatimage.data.model.RequestError
@@ -18,7 +26,10 @@ import com.example.chatimage.data.model.RequestRoute
 import com.example.chatimage.data.model.RouteDecision
 import com.example.chatimage.data.model.WebSearchMode
 import com.example.chatimage.util.ImageFileUtils
+import com.example.chatimage.util.FileAttachmentUtils
+import com.example.chatimage.util.PreparedFileAttachment
 import java.io.File
+import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -378,6 +389,9 @@ class AppViewModel(
                     _uiState.value.copy(
                         attachedImagePath =
                             file.absolutePath,
+                        attachedFilePath = null,
+                        attachedFileName = null,
+                        attachedFileMimeType = null,
                         referencedImagePath =
                             null,
                         referencedImageId =
@@ -891,6 +905,12 @@ class AppViewModel(
                     route = route,
                     attachedImagePath =
                         state.attachedImagePath,
+                    attachedFilePath =
+                        state.attachedFilePath,
+                    attachedFileName =
+                        state.attachedFileName,
+                    attachedFileMimeType =
+                        state.attachedFileMimeType,
                     referencedImagePath =
                         decision.sourceImagePath,
                     apiProfileId =
@@ -964,6 +984,9 @@ class AppViewModel(
                     },
                 globalError = null,
                 attachedImagePath = null,
+                attachedFilePath = null,
+                attachedFileName = null,
+                attachedFileMimeType = null,
                 referencedImagePath = null,
                 referencedImageId = null,
                 forceSearchForNextRequest =
@@ -981,20 +1004,10 @@ class AppViewModel(
                             .IMAGE_GENERATION,
                         RequestRoute
                             .IMAGE_EDIT -> {
-                            executeImageRequest(
-                                assistant =
-                                    assistant,
-                                prompt = prompt,
-                                originalPrompt =
-                                    originalPrompt,
-                                sourceImagePath =
-                                    decision
-                                        .sourceImagePath,
-                                model = model,
-                                apiProfile =
-                                    apiProfile,
-                                settings =
-                                    state.appSettings
+                            enqueueImageGeneration(
+                                assistantId = assistant.id,
+                                userMessageId = userMessage.id,
+                                settings = state.appSettings
                             )
                         }
 
@@ -1054,6 +1067,68 @@ class AppViewModel(
             }
     }
 
+    fun selectFileAttachment(uri: Uri) {
+        viewModelScope.launch {
+            runCatching {
+                withContext(Dispatchers.IO) {
+                    FileAttachmentUtils.copyAttachment(getApplication(), uri)
+                }
+            }.onSuccess { attachment ->
+                _uiState.value = _uiState.value.copy(
+                    attachedFilePath = attachment.path,
+                    attachedFileName = attachment.name,
+                    attachedFileMimeType = attachment.mimeType,
+                    attachedImagePath = null,
+                    referencedImagePath = null,
+                    referencedImageId = null,
+                    globalError = null
+                )
+            }.onFailure {
+                showError(it.message ?: "无法读取选择的文件")
+            }
+        }
+    }
+
+    fun clearFileAttachment() {
+        _uiState.value = _uiState.value.copy(
+            attachedFilePath = null,
+            attachedFileName = null,
+            attachedFileMimeType = null
+        )
+    }
+
+    private fun enqueueImageGeneration(
+        assistantId: String,
+        userMessageId: String,
+        settings: AppSettings
+    ) {
+        val request = OneTimeWorkRequestBuilder<ImageGenerationWorker>()
+            .setInputData(
+                workDataOf(
+                    ImageGenerationWorker.KEY_ASSISTANT_ID to assistantId,
+                    ImageGenerationWorker.KEY_USER_MESSAGE_ID to userMessageId
+                )
+            )
+            .setConstraints(
+                Constraints.Builder()
+                    .setRequiredNetworkType(NetworkType.CONNECTED)
+                    .build()
+            )
+            .setBackoffCriteria(
+                BackoffPolicy.EXPONENTIAL,
+                settings.retry.initialDelaySeconds.coerceAtLeast(10),
+                TimeUnit.SECONDS
+            )
+            .addTag(ImageGenerationWorker.WORK_PREFIX + assistantId)
+            .build()
+
+        WorkManager.getInstance(getApplication()).enqueueUniqueWork(
+            ImageGenerationWorker.WORK_PREFIX + assistantId,
+            ExistingWorkPolicy.KEEP,
+            request
+        )
+    }
+
     private suspend fun executeChatRequest(
         conversationId: String,
         assistant: MessageEntity,
@@ -1103,6 +1178,7 @@ class AppViewModel(
                     currentUserImageDataUrl =
                         currentUserImageDataUrl
                 )
+                .toMutableList()
 
         val requestApiProfile =
             if (route == RequestRoute.VISION_CHAT) {
@@ -1114,6 +1190,49 @@ class AppViewModel(
             } else {
                 apiProfile
             }
+
+        val currentUserMessage = databaseMessages
+            .asReversed()
+            .firstOrNull {
+                it.message.role.equals("user", ignoreCase = true)
+            }
+            ?.message
+
+        currentUserMessage?.attachedFilePath?.let { path ->
+            val prepared = withContext(Dispatchers.IO) {
+                FileAttachmentUtils.prepare(
+                    file = File(path),
+                    fileName = currentUserMessage.attachedFileName
+                        ?: File(path).name,
+                    mimeType = currentUserMessage.attachedFileMimeType.orEmpty(),
+                    allowBinaryInput = requestApiProfile.profile.chatPath
+                        .trimEnd('/')
+                        .endsWith("/responses", ignoreCase = true)
+                )
+            }
+            val userIndex = messages.indexOfLast { it.role == "user" }
+            if (userIndex >= 0) {
+                val wireMessage = messages[userIndex]
+                messages[userIndex] = when (prepared) {
+                    is PreparedFileAttachment.TextContext -> wireMessage.copy(
+                        content = wireMessage.content.orEmpty() +
+                            "\n\n" + prepared.text
+                    )
+
+                    is PreparedFileAttachment.BinaryFile -> wireMessage.copy(
+                        contentParts = listOf(
+                            com.example.chatimage.data.api.ChatContentPart.Text(
+                                wireMessage.content.orEmpty()
+                            ),
+                            com.example.chatimage.data.api.ChatContentPart.InputFile(
+                                prepared.fileName,
+                                prepared.dataUrl
+                            )
+                        )
+                    )
+                }
+            }
+        }
 
         val searchProfile =
             searchProfileRepository
@@ -1376,6 +1495,9 @@ class AppViewModel(
                 currentConversation =
                     conversation,
                 attachedImagePath = null,
+                attachedFilePath = null,
+                attachedFileName = null,
+                attachedFileMimeType = null,
                 referencedImagePath = null,
                 referencedImageId = null,
                 globalError = null,
@@ -1569,6 +1691,12 @@ class AppViewModel(
                     selectedRoute = route,
                     attachedImagePath =
                         userMessage.attachedImagePath,
+                    attachedFilePath =
+                        userMessage.attachedFilePath,
+                    attachedFileName =
+                        userMessage.attachedFileName,
+                    attachedFileMimeType =
+                        userMessage.attachedFileMimeType,
                     referencedImagePath =
                         userMessage.referencedImagePath,
                     referencedImageId = null,

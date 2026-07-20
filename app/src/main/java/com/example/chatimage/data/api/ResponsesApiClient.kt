@@ -136,6 +136,12 @@ class ResponsesApiClient(
                                     }
                                 }
                         )
+                        is ChatContentPart.InputFile -> content.put(
+                            JSONObject()
+                                .put("type", "input_file")
+                                .put("filename", part.fileName)
+                                .put("file_data", part.dataUrl)
+                        )
                     }
                 }
                 item.put("content", content)
@@ -147,6 +153,24 @@ class ResponsesApiClient(
 
         val standard = JSONObject()
             .put("model", model)
+
+        if (builtInWebSearch) {
+            standard.put(
+                "tools",
+                JSONArray().put(
+                    JSONObject().put(
+                        "type",
+                        settings.search.builtInToolType.ifBlank { "web_search" }
+                    )
+                )
+            )
+            standard.put(
+                "include",
+                JSONArray().put("web_search_call.action.sources")
+            )
+        }
+
+        standard
             .put("input", input)
             .put("stream", parameters.streamEnabled)
 
@@ -170,22 +194,6 @@ class ResponsesApiClient(
                 parameters.reasoningValue
             )
         }
-        if (builtInWebSearch) {
-            standard.put(
-                "tools",
-                JSONArray().put(
-                    JSONObject().put(
-                        "type",
-                        settings.search.builtInToolType.ifBlank { "web_search" }
-                    )
-                )
-            )
-            standard.put(
-                "include",
-                JSONArray().put("web_search_call.action.sources")
-            )
-        }
-
         return JsonUtils.deepMerge(
             base = standard,
             overlay = JsonUtils.parseObjectOrEmpty(parameters.extraRequestJson),

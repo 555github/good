@@ -20,6 +20,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.AutoFixHigh
 import androidx.compose.material.icons.filled.Image
+import androidx.compose.material.icons.filled.InsertDriveFile
 import androidx.compose.material.icons.filled.Public
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.Stop
@@ -83,6 +84,12 @@ fun ConversationScreen(
                 }
             }
         }
+
+    val filePicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri: Uri? ->
+        uri?.let(viewModel::selectFileAttachment)
+    }
 
     LaunchedEffect(
         state.messages.size,
@@ -255,6 +262,14 @@ fun ConversationScreen(
             )
         }
 
+        state.attachedFilePath?.let { path ->
+            FileAttachmentPreview(
+                path = path,
+                name = state.attachedFileName ?: File(path).name,
+                onRemove = viewModel::clearFileAttachment
+            )
+        }
+
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -273,9 +288,22 @@ fun ConversationScreen(
             ) {
                 Icon(
                     imageVector =
-                        Icons.Default.AttachFile,
+                        Icons.Default.Image,
                     contentDescription =
                         "选择图片"
+                )
+            }
+
+            IconButton(
+                onClick = {
+                    filePicker.launch(arrayOf("*/*"))
+                },
+                enabled = !state.loading,
+                modifier = Modifier.size(52.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.AttachFile,
+                    contentDescription = "选择文件"
                 )
             }
 
@@ -592,10 +620,61 @@ private fun SourceImagePreview(
     }
 }
 
+@Composable
+private fun FileAttachmentPreview(
+    path: String,
+    name: String,
+    onRemove: () -> Unit
+) {
+    val file = File(path)
+    if (!file.exists()) return
+
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 10.dp, vertical = 3.dp)
+    ) {
+        Row(
+            modifier = Modifier.padding(8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                Icons.Default.InsertDriveFile,
+                contentDescription = null,
+                modifier = Modifier.size(30.dp)
+            )
+            Spacer(Modifier.width(8.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(name, maxLines = 1)
+                Text(
+                    formatFileSize(file.length()),
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+            TextButton(onClick = onRemove) {
+                Text("移除")
+            }
+        }
+    }
+}
+
+private fun formatFileSize(bytes: Long): String {
+    return when {
+        bytes >= 1024L * 1024L ->
+            String.format("%.1f MB", bytes / 1024.0 / 1024.0)
+        bytes >= 1024L ->
+            String.format("%.1f KB", bytes / 1024.0)
+        else -> "$bytes B"
+    }
+}
+
 private fun inputPlaceholder(
     state: AppUiState
 ): String {
     return when {
+        state.attachedFilePath != null ->
+            "输入关于该文件的问题"
+
         state.attachedImagePath != null &&
             state.selectedRoute ==
             RequestRoute.VISION_CHAT ->

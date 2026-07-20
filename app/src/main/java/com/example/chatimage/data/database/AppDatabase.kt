@@ -15,7 +15,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         ApiProfileEntity::class,
         SearchProfileEntity::class
     ],
-    version = 2,
+    version = 3,
     exportSchema = true
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -44,7 +44,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "chatimage_v3.db"
                 )
-                    .addMigrations(MIGRATION_1_2)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
                     .build()
                     .also {
                         instance = it
@@ -58,6 +58,14 @@ abstract class AppDatabase : RoomDatabase() {
                 database.execSQL("ALTER TABLE messages ADD COLUMN outputTokens INTEGER")
                 database.execSQL("ALTER TABLE messages ADD COLUMN totalTokens INTEGER")
                 database.execSQL("ALTER TABLE messages ADD COLUMN cachedInputTokens INTEGER")
+            }
+        }
+
+        private val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL("ALTER TABLE messages ADD COLUMN attachedFilePath TEXT")
+                database.execSQL("ALTER TABLE messages ADD COLUMN attachedFileName TEXT")
+                database.execSQL("ALTER TABLE messages ADD COLUMN attachedFileMimeType TEXT")
             }
         }
     }
