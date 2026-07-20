@@ -30,6 +30,7 @@ class ResponsesApiClient(
         settings: AppSettings,
         messages: List<ChatWireMessage>,
         builtInWebSearch: Boolean = false,
+        requireBuiltInWebSearch: Boolean = false,
         onStatus: suspend (String) -> Unit = {},
         onDelta: suspend (String) -> Unit = {}
     ): ApiOutcome<ChatCompletionResult> = withContext(Dispatchers.IO) {
@@ -42,7 +43,8 @@ class ResponsesApiClient(
                 model = profile.chatModel,
                 settings = settings,
                 messages = messages,
-                builtInWebSearch = builtInWebSearch
+                builtInWebSearch = builtInWebSearch,
+                requireBuiltInWebSearch = requireBuiltInWebSearch
             )
             val body = requestJson.toString().toRequestBody(
                 "application/json; charset=utf-8".toMediaType()
@@ -106,11 +108,12 @@ class ResponsesApiClient(
         }
     }
 
-    private fun buildRequestJson(
+    internal fun buildRequestJson(
         model: String,
         settings: AppSettings,
         messages: List<ChatWireMessage>,
-        builtInWebSearch: Boolean
+        builtInWebSearch: Boolean,
+        requireBuiltInWebSearch: Boolean = false
     ): JSONObject {
         val parameters = settings.chatParameters
         val input = JSONArray()
@@ -168,6 +171,9 @@ class ResponsesApiClient(
                 "include",
                 JSONArray().put("web_search_call.action.sources")
             )
+            if (requireBuiltInWebSearch) {
+                standard.put("tool_choice", "required")
+            }
         }
 
         standard

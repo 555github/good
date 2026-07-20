@@ -42,6 +42,7 @@ enum class WebSearchMode {
 }
 
 enum class WebSearchProvider {
+    AUTO,
     THIRD_PARTY,
     MODEL_BUILT_IN
 }
@@ -341,7 +342,7 @@ data class SearchSettings(
     val mode: WebSearchMode = WebSearchMode.OFF,
 
     val provider: WebSearchProvider =
-        WebSearchProvider.THIRD_PARTY,
+        WebSearchProvider.AUTO,
 
     val builtInToolType: String = "web_search",
 

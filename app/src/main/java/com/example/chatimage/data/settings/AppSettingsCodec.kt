@@ -921,6 +921,7 @@ object AppSettingsCodec {
         return JSONObject()
             .put("mode", value.mode.name)
             .put("provider", value.provider.name)
+            .put("providerSelectionVersion", 1)
             .put(
                 "builtInToolType",
                 value.builtInToolType
@@ -1022,13 +1023,19 @@ object AppSettingsCodec {
                 ),
                 defaults.mode
             ),
-            provider = enumValue(
-                json.optString(
-                    "provider",
-                    defaults.provider.name
-                ),
-                defaults.provider
-            ),
+            provider = if (
+                json.optInt("providerSelectionVersion", 0) < 1
+            ) {
+                WebSearchProvider.AUTO
+            } else {
+                enumValue(
+                    json.optString(
+                        "provider",
+                        defaults.provider.name
+                    ),
+                    defaults.provider
+                )
+            },
             builtInToolType = json.optString(
                 "builtInToolType",
                 defaults.builtInToolType

@@ -31,6 +31,23 @@ data class AssistantAnswer(
     val usage: TokenUsage = TokenUsage()
 )
 
+internal fun resolveWebSearchProvider(
+    configuredProvider: WebSearchProvider,
+    usesResponses: Boolean
+): WebSearchProvider {
+    return when (configuredProvider) {
+        WebSearchProvider.AUTO -> {
+            if (usesResponses) {
+                WebSearchProvider.MODEL_BUILT_IN
+            } else {
+                WebSearchProvider.THIRD_PARTY
+            }
+        }
+
+        else -> configuredProvider
+    }
+}
+
 class AiRequestRepository(
     private val chatApiClient: ChatApiClient,
     private val responsesApiClient:
@@ -80,8 +97,13 @@ class AiRequestRepository(
             .trimEnd('/')
             .endsWith("/responses", ignoreCase = true)
 
+        val searchProvider = resolveWebSearchProvider(
+            configuredProvider = settings.search.provider,
+            usesResponses = usesResponses
+        )
+
         if (
-            settings.search.provider == WebSearchProvider.MODEL_BUILT_IN &&
+            searchProvider == WebSearchProvider.MODEL_BUILT_IN &&
             (searchMode != WebSearchMode.OFF || forceSearch)
         ) {
             if (!usesResponses) {
@@ -94,11 +116,19 @@ class AiRequestRepository(
                 )
             }
 
+            onStatus(
+                if (forceSearch) {
+                    "正在通过模型内置工具联网搜索..."
+                } else {
+                    "已允许模型按需使用内置联网工具..."
+                }
+            )
             val response = responsesApiClient.complete(
                 resolvedProfile = apiProfile,
                 settings = settings,
                 messages = messages,
                 builtInWebSearch = true,
+                requireBuiltInWebSearch = forceSearch,
                 onStatus = onStatus,
                 onDelta = onDelta
             )
@@ -107,7 +137,7 @@ class AiRequestRepository(
 
         if (
             usesResponses &&
-            settings.search.provider == WebSearchProvider.THIRD_PARTY &&
+            searchProvider == WebSearchProvider.THIRD_PARTY &&
             searchMode == WebSearchMode.AUTO &&
             (toolCallsEnabled || localRuleNeedsSearch)
         ) {

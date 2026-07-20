@@ -1991,6 +1991,14 @@ private fun SearchSettingsSection(
         label = "联网来源",
         current = search.provider.name,
         values = WebSearchProvider.entries.map { it.name },
+        displayName = { value ->
+            when (value) {
+                WebSearchProvider.AUTO.name ->
+                    "自动（Responses 内置优先）"
+
+                else -> enumDisplayName(value)
+            }
+        },
         onSelect = {
             onChange(
                 settings.copy(
@@ -2000,6 +2008,12 @@ private fun SearchSettingsSection(
                 )
             )
         }
+    )
+
+    Text(
+        text = "自动模式下，/responses 优先使用模型内置联网，不需要第三方搜索 API；其他接口使用已配置的第三方搜索。",
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant
     )
 
     TextFieldSetting(
@@ -4544,6 +4558,7 @@ private fun EnumSelector(
     label: String,
     current: String,
     values: List<String>,
+    displayName: (String) -> String = ::enumDisplayName,
     onSelect: (String) -> Unit
 ) {
     var expanded by remember {
@@ -4573,7 +4588,7 @@ private fun EnumSelector(
             ) {
                 Text(
                     text = current.takeIf(String::isNotBlank)
-                        ?.let(::enumDisplayName)
+                        ?.let(displayName)
                         ?: "请选择",
                     modifier = Modifier.weight(1f)
                 )
@@ -4590,7 +4605,7 @@ private fun EnumSelector(
                 values.distinct().forEach { value ->
                     DropdownMenuItem(
                         text = {
-                            Text(enumDisplayName(value))
+                            Text(displayName(value))
                         },
                         onClick = {
                             onSelect(value)
@@ -4608,12 +4623,12 @@ private fun enumDisplayName(value: String): String {
         "SYSTEM" -> "跟随系统"
         "LIGHT" -> "浅色"
         "DARK" -> "深色"
+        "AUTO" -> "自动"
         "THIRD_PARTY" -> "第三方搜索 API"
         "MODEL_BUILT_IN" -> "模型内置工具"
         "CHAT_COMPLETIONS" -> "Chat Completions"
         "RESPONSES" -> "Responses"
         "OFF" -> "关闭"
-        "AUTO" -> "自动"
         "ALWAYS" -> "始终开启"
         "DISABLED" -> "关闭"
         "OPENAI_TOOLS" -> "兼容 Tool Calls"
