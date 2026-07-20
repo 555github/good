@@ -41,6 +41,12 @@ enum class WebSearchMode {
     ALWAYS
 }
 
+enum class WebSearchProvider {
+    AUTO,
+    THIRD_PARTY,
+    MODEL_BUILT_IN
+}
+
 enum class ToolCallMode {
     DISABLED,
     OPENAI_TOOLS,
@@ -164,6 +170,14 @@ data class ChatParameterSettings(
 
     val responseFormatJson: String = "",
 
+    val reasoningEnabled: Boolean = false,
+
+    val reasoningFieldPath: String = "reasoning.effort",
+
+    val reasoningValue: String = "medium",
+
+    val requestUsage: Boolean = true,
+
     val extraRequestJson: String = "{}"
 )
 
@@ -256,11 +270,18 @@ data class ImageIntentSettings(
 
     val generationKeywords: List<String> = listOf(
         "生成图片",
+        "生成图像",
         "画一张",
         "绘制",
         "创建图片",
         "创建海报",
-        "文生图"
+        "文生图",
+        "来一张",
+        "给我一张",
+        "帮我画",
+        "出一张",
+        "制作海报",
+        "设计海报"
     ),
 
     val editKeywords: List<String> = listOf(
@@ -319,6 +340,11 @@ data class PromptOptimizationSettings(
 
 data class SearchSettings(
     val mode: WebSearchMode = WebSearchMode.OFF,
+
+    val provider: WebSearchProvider =
+        WebSearchProvider.AUTO,
+
+    val builtInToolType: String = "web_search",
 
     val toolCallMode: ToolCallMode =
         ToolCallMode.DISABLED,
@@ -466,6 +492,10 @@ data class AppearanceSettings(
     val themeMode: ThemeMode = ThemeMode.SYSTEM,
 
     val fontScale: Float = 1.0f,
+
+    val messageSpacingDp: Int = 8,
+
+    val messagePaddingDp: Int = 10,
 
     val messageWidthFraction: Float = 0.94f,
 

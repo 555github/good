@@ -16,6 +16,7 @@ import com.example.chatimage.data.model.ThemeMode
 import com.example.chatimage.data.model.TimeoutSettings
 import com.example.chatimage.data.model.ToolCallMode
 import com.example.chatimage.data.model.WebSearchMode
+import com.example.chatimage.data.model.WebSearchProvider
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -288,6 +289,19 @@ object AppSettingsCodec {
                 value.responseFormatJson
             )
             .put(
+                "reasoningEnabled",
+                value.reasoningEnabled
+            )
+            .put(
+                "reasoningFieldPath",
+                value.reasoningFieldPath
+            )
+            .put(
+                "reasoningValue",
+                value.reasoningValue
+            )
+            .put("requestUsage", value.requestUsage)
+            .put(
                 "extraRequestJson",
                 value.extraRequestJson
             )
@@ -416,6 +430,22 @@ object AppSettingsCodec {
             responseFormatJson = json.optString(
                 "responseFormatJson",
                 defaults.responseFormatJson
+            ),
+            reasoningEnabled = json.optBoolean(
+                "reasoningEnabled",
+                defaults.reasoningEnabled
+            ),
+            reasoningFieldPath = json.optString(
+                "reasoningFieldPath",
+                defaults.reasoningFieldPath
+            ),
+            reasoningValue = json.optString(
+                "reasoningValue",
+                defaults.reasoningValue
+            ),
+            requestUsage = json.optBoolean(
+                "requestUsage",
+                defaults.requestUsage
             ),
             extraRequestJson = json.optString(
                 "extraRequestJson",
@@ -890,6 +920,12 @@ object AppSettingsCodec {
     ): JSONObject {
         return JSONObject()
             .put("mode", value.mode.name)
+            .put("provider", value.provider.name)
+            .put("providerSelectionVersion", 1)
+            .put(
+                "builtInToolType",
+                value.builtInToolType
+            )
             .put(
                 "toolCallMode",
                 value.toolCallMode.name
@@ -986,6 +1022,23 @@ object AppSettingsCodec {
                     defaults.mode.name
                 ),
                 defaults.mode
+            ),
+            provider = if (
+                json.optInt("providerSelectionVersion", 0) < 1
+            ) {
+                WebSearchProvider.AUTO
+            } else {
+                enumValue(
+                    json.optString(
+                        "provider",
+                        defaults.provider.name
+                    ),
+                    defaults.provider
+                )
+            },
+            builtInToolType = json.optString(
+                "builtInToolType",
+                defaults.builtInToolType
             ),
             toolCallMode = enumValue(
                 json.optString(
@@ -1448,6 +1501,14 @@ object AppSettingsCodec {
                 value.fontScale.toDouble()
             )
             .put(
+                "messageSpacingDp",
+                value.messageSpacingDp
+            )
+            .put(
+                "messagePaddingDp",
+                value.messagePaddingDp
+            )
+            .put(
                 "messageWidthFraction",
                 value.messageWidthFraction
                     .toDouble()
@@ -1510,6 +1571,14 @@ object AppSettingsCodec {
                 "fontScale",
                 defaults.fontScale.toDouble()
             ).toFloat(),
+            messageSpacingDp = json.optInt(
+                "messageSpacingDp",
+                defaults.messageSpacingDp
+            ),
+            messagePaddingDp = json.optInt(
+                "messagePaddingDp",
+                defaults.messagePaddingDp
+            ),
             messageWidthFraction =
                 json.optDouble(
                     "messageWidthFraction",

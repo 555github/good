@@ -3,11 +3,13 @@ package com.example.chatimage.domain
 import com.example.chatimage.data.api.ApiOutcome
 import com.example.chatimage.data.api.ChatApiClient
 import com.example.chatimage.data.api.ChatWireMessage
+import com.example.chatimage.data.api.ResponsesApiClient
 import com.example.chatimage.data.model.AppSettings
 import com.example.chatimage.data.repository.ResolvedApiProfile
 
 class PromptOptimizer(
-    private val chatApiClient: ChatApiClient
+    private val chatApiClient: ChatApiClient,
+    private val responsesApiClient: ResponsesApiClient
 ) {
 
     fun shouldOfferOptimization(
@@ -101,7 +103,19 @@ class PromptOptimizer(
                 append(originalPrompt)
             }
 
-        val outcome =
+        val outcome = if (
+            optimizerProfile.profile.chatPath
+                .trimEnd('/')
+                .endsWith("/responses", ignoreCase = true)
+        ) {
+            responsesApiClient.complete(
+                resolvedProfile = optimizerProfile,
+                settings = optimizerSettings,
+                messages = listOf(
+                    ChatWireMessage(role = "user", content = instruction)
+                )
+            )
+        } else {
             chatApiClient.complete(
                 resolvedProfile =
                     optimizerProfile,
@@ -115,6 +129,7 @@ class PromptOptimizer(
                 ),
                 streamOverride = false
             )
+        }
 
         return when (outcome) {
             is ApiOutcome.Failure -> {

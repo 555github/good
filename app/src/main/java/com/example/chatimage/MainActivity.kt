@@ -4,9 +4,11 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
-import androidx.compose.material3.MaterialTheme
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import com.example.chatimage.ui.AppViewModel
 import com.example.chatimage.ui.ChatImageApp
+import com.example.chatimage.ui.ChatImageTheme
 
 class MainActivity : ComponentActivity() {
 
@@ -18,7 +20,11 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
 
         setContent {
-            MaterialTheme {
+            val appearance by viewModel.appearance.collectAsState()
+
+            ChatImageTheme(
+                appearance = appearance
+            ) {
                 ChatImageApp(
                     viewModel = viewModel
                 )

@@ -4,6 +4,8 @@ import android.content.Context
 import com.example.chatimage.data.api.ChatApiClient
 import com.example.chatimage.data.api.HttpClientFactory
 import com.example.chatimage.data.api.ImageApiClient
+import com.example.chatimage.data.api.ModelsApiClient
+import com.example.chatimage.data.api.ResponsesApiClient
 import com.example.chatimage.data.api.SearchApiClient
 import com.example.chatimage.data.api.ToolCallEngine
 import com.example.chatimage.data.database.AppDatabase
@@ -87,10 +89,22 @@ class AppContainer(
                 httpClientFactory
         )
 
+    val modelsApiClient =
+        ModelsApiClient(
+            clientFactory = httpClientFactory
+        )
+
+    val responsesApiClient =
+        ResponsesApiClient(
+            clientFactory = httpClientFactory
+        )
+
     val toolCallEngine =
         ToolCallEngine(
             chatApiClient =
                 chatApiClient,
+            responsesApiClient =
+                responsesApiClient,
             searchApiClient =
                 searchApiClient
         )
@@ -107,13 +121,17 @@ class AppContainer(
     val promptOptimizer =
         PromptOptimizer(
             chatApiClient =
-                chatApiClient
+                chatApiClient,
+            responsesApiClient =
+                responsesApiClient
         )
 
     val aiRequestRepository =
         AiRequestRepository(
             chatApiClient =
                 chatApiClient,
+            responsesApiClient =
+                responsesApiClient,
             imageApiClient =
                 imageApiClient,
             toolCallEngine =

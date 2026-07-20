@@ -20,9 +20,58 @@ sealed interface ApiOutcome<out T> {
     ) : ApiOutcome<Nothing>
 }
 
+sealed interface ChatContentPart {
+
+    fun toJson(): JSONObject
+
+    data class Text(
+        val text: String
+    ) : ChatContentPart {
+
+        override fun toJson(): JSONObject {
+            return JSONObject()
+                .put("type", "text")
+                .put("text", text)
+        }
+    }
+
+    data class ImageUrl(
+        val url: String,
+        val detail: String? = null
+    ) : ChatContentPart {
+
+        override fun toJson(): JSONObject {
+            val imageUrl = JSONObject()
+                .put("url", url)
+
+            if (!detail.isNullOrBlank()) {
+                imageUrl.put("detail", detail)
+            }
+
+            return JSONObject()
+                .put("type", "image_url")
+                .put("image_url", imageUrl)
+        }
+    }
+
+    data class InputFile(
+        val fileName: String,
+        val dataUrl: String
+    ) : ChatContentPart {
+        override fun toJson(): JSONObject {
+            return JSONObject()
+                .put("type", "input_file")
+                .put("filename", fileName)
+                .put("file_data", dataUrl)
+        }
+    }
+}
+
 data class ChatWireMessage(
     val role: String,
     val content: String? = null,
+    val contentParts: List<ChatContentPart> =
+        emptyList(),
     val name: String? = null,
     val toolCallId: String? = null,
     val toolCalls: List<ToolCall> = emptyList()
@@ -32,7 +81,15 @@ data class ChatWireMessage(
         val result = JSONObject()
             .put("role", role)
 
-        if (content != null) {
+        if (contentParts.isNotEmpty()) {
+            val array = JSONArray()
+
+            contentParts.forEach { part ->
+                array.put(part.toJson())
+            }
+
+            result.put("content", array)
+        } else if (content != null) {
             result.put("content", content)
         } else if (toolCalls.isNotEmpty()) {
             result.put("content", JSONObject.NULL)
@@ -165,7 +222,17 @@ data class ChatCompletionResult(
     val content: String,
     val toolCalls: List<ToolCall> = emptyList(),
     val finishReason: String? = null,
-    val rawResponsePreview: String? = null
+    val rawResponsePreview: String? = null,
+    val citations: List<Citation> = emptyList(),
+    val searchQueries: List<String> = emptyList(),
+    val usage: TokenUsage = TokenUsage()
+)
+
+data class TokenUsage(
+    val inputTokens: Long? = null,
+    val outputTokens: Long? = null,
+    val totalTokens: Long? = null,
+    val cachedInputTokens: Long? = null
 )
 
 data class SearchResponse(
@@ -203,5 +270,6 @@ data class ToolEngineResult(
     val searchQueries: List<String>,
     val usedToolCalls: Boolean,
     val usedFallback: Boolean,
-    val diagnostics: RequestDiagnostics
+    val diagnostics: RequestDiagnostics,
+    val usage: TokenUsage = TokenUsage()
 )

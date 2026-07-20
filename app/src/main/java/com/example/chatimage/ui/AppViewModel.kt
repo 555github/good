@@ -4,6 +4,13 @@ import android.app.Application
 import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import androidx.work.BackoffPolicy
+import androidx.work.Constraints
+import androidx.work.ExistingWorkPolicy
+import androidx.work.NetworkType
+import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.WorkManager
+import androidx.work.workDataOf
 import com.example.chatimage.ChatImageApplication
 import com.example.chatimage.data.api.ApiOutcome
 import com.example.chatimage.data.api.ImageRequestOptions
@@ -11,18 +18,29 @@ import com.example.chatimage.data.database.ApiProfileEntity
 import com.example.chatimage.data.database.MessageEntity
 import com.example.chatimage.data.database.MessageImageEntity
 import com.example.chatimage.data.database.SearchProfileEntity
+import com.example.chatimage.data.work.ImageGenerationWorker
 import com.example.chatimage.data.model.AppSettings
+import com.example.chatimage.data.model.AppearanceSettings
 import com.example.chatimage.data.model.MessageStatus
 import com.example.chatimage.data.model.RequestError
 import com.example.chatimage.data.model.RequestRoute
 import com.example.chatimage.data.model.RouteDecision
 import com.example.chatimage.data.model.WebSearchMode
+import com.example.chatimage.data.repository.ResolvedApiProfile
 import com.example.chatimage.util.ImageFileUtils
+import com.example.chatimage.util.FileAttachmentUtils
+import com.example.chatimage.util.PreparedFileAttachment
 import java.io.File
+import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.Dispatchers
@@ -65,6 +83,9 @@ class AppViewModel(
     private val promptOptimizer =
         container.promptOptimizer
 
+    private val modelsApiClient =
+        container.modelsApiClient
+
     private val exportUtils =
         container.exportUtils
 
@@ -75,6 +96,15 @@ class AppViewModel(
 
     val uiState =
         _uiState.asStateFlow()
+
+    val appearance = uiState
+        .map { it.appSettings.appearance }
+        .distinctUntilChanged()
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5_000),
+            initialValue = AppearanceSettings()
+        )
 
     private var conversationsJob:
         Job? = null
@@ -92,6 +122,9 @@ class AppViewModel(
         Job? = null
 
     private var requestJob:
+        Job? = null
+
+    private var routePreviewJob:
         Job? = null
 
     init {
@@ -288,6 +321,7 @@ class AppViewModel(
     fun setSelectedRoute(
         route: RequestRoute
     ) {
+        routePreviewJob?.cancel()
         _uiState.value =
             _uiState.value.copy(
                 selectedRoute = route,
@@ -320,7 +354,17 @@ class AppViewModel(
     fun previewRoute(
         prompt: String
     ) {
-        viewModelScope.launch {
+        routePreviewJob?.cancel()
+
+        if (prompt.isBlank()) {
+            _uiState.value = _uiState.value.copy(
+                routePreview = null
+            )
+            return
+        }
+
+        routePreviewJob = viewModelScope.launch {
+            delay(180L)
             val state = _uiState.value
             val conversationId =
                 state.currentConversationId
@@ -375,6 +419,9 @@ class AppViewModel(
                     _uiState.value.copy(
                         attachedImagePath =
                             file.absolutePath,
+                        attachedFilePath = null,
+                        attachedFileName = null,
+                        attachedFileMimeType = null,
                         referencedImagePath =
                             null,
                         referencedImageId =
@@ -433,6 +480,7 @@ class AppViewModel(
     fun send(
         prompt: String
     ) {
+        routePreviewJob?.cancel()
         val cleanPrompt =
             prompt.trim()
 
@@ -540,6 +588,18 @@ class AppViewModel(
                         "识别到图片编辑指令，但没有找到源图片。请上传图片，或点击上文图片的“继续编辑”。"
                 )
 
+            return
+        }
+
+        if (
+            decision.route ==
+            RequestRoute.VISION_CHAT &&
+            decision.sourceImagePath
+                .isNullOrBlank()
+        ) {
+            showError(
+                "视觉分析需要先选择一张图片"
+            )
             return
         }
 
@@ -876,10 +936,17 @@ class AppViewModel(
                     route = route,
                     attachedImagePath =
                         state.attachedImagePath,
+                    attachedFilePath =
+                        state.attachedFilePath,
+                    attachedFileName =
+                        state.attachedFileName,
+                    attachedFileMimeType =
+                        state.attachedFileMimeType,
                     referencedImagePath =
                         decision.sourceImagePath,
                     apiProfileId =
-                        apiProfile.profile.id
+                        apiProfile.profile.id,
+                    model = model
                 )
 
         conversationRepository
@@ -948,6 +1015,9 @@ class AppViewModel(
                     },
                 globalError = null,
                 attachedImagePath = null,
+                attachedFilePath = null,
+                attachedFileName = null,
+                attachedFileMimeType = null,
                 referencedImagePath = null,
                 referencedImageId = null,
                 forceSearchForNextRequest =
@@ -965,20 +1035,10 @@ class AppViewModel(
                             .IMAGE_GENERATION,
                         RequestRoute
                             .IMAGE_EDIT -> {
-                            executeImageRequest(
-                                assistant =
-                                    assistant,
-                                prompt = prompt,
-                                originalPrompt =
-                                    originalPrompt,
-                                sourceImagePath =
-                                    decision
-                                        .sourceImagePath,
-                                model = model,
-                                apiProfile =
-                                    apiProfile,
-                                settings =
-                                    state.appSettings
+                            enqueueImageGeneration(
+                                assistantId = assistant.id,
+                                userMessageId = userMessage.id,
+                                settings = state.appSettings
                             )
                         }
 
@@ -994,7 +1054,12 @@ class AppViewModel(
                                 apiProfile =
                                     apiProfile,
                                 settings =
-                                    state.appSettings
+                                    state.appSettings,
+                                route = route,
+                                model = model,
+                                visionImagePath =
+                                    decision
+                                        .sourceImagePath
                             )
                         }
                     }
@@ -1033,6 +1098,68 @@ class AppViewModel(
             }
     }
 
+    fun selectFileAttachment(uri: Uri) {
+        viewModelScope.launch {
+            runCatching {
+                withContext(Dispatchers.IO) {
+                    FileAttachmentUtils.copyAttachment(getApplication(), uri)
+                }
+            }.onSuccess { attachment ->
+                _uiState.value = _uiState.value.copy(
+                    attachedFilePath = attachment.path,
+                    attachedFileName = attachment.name,
+                    attachedFileMimeType = attachment.mimeType,
+                    attachedImagePath = null,
+                    referencedImagePath = null,
+                    referencedImageId = null,
+                    globalError = null
+                )
+            }.onFailure {
+                showError(it.message ?: "无法读取选择的文件")
+            }
+        }
+    }
+
+    fun clearFileAttachment() {
+        _uiState.value = _uiState.value.copy(
+            attachedFilePath = null,
+            attachedFileName = null,
+            attachedFileMimeType = null
+        )
+    }
+
+    private fun enqueueImageGeneration(
+        assistantId: String,
+        userMessageId: String,
+        settings: AppSettings
+    ) {
+        val request = OneTimeWorkRequestBuilder<ImageGenerationWorker>()
+            .setInputData(
+                workDataOf(
+                    ImageGenerationWorker.KEY_ASSISTANT_ID to assistantId,
+                    ImageGenerationWorker.KEY_USER_MESSAGE_ID to userMessageId
+                )
+            )
+            .setConstraints(
+                Constraints.Builder()
+                    .setRequiredNetworkType(NetworkType.CONNECTED)
+                    .build()
+            )
+            .setBackoffCriteria(
+                BackoffPolicy.EXPONENTIAL,
+                settings.retry.initialDelaySeconds.coerceAtLeast(10),
+                TimeUnit.SECONDS
+            )
+            .addTag(ImageGenerationWorker.WORK_PREFIX + assistantId)
+            .build()
+
+        WorkManager.getInstance(getApplication()).enqueueUniqueWork(
+            ImageGenerationWorker.WORK_PREFIX + assistantId,
+            ExistingWorkPolicy.KEEP,
+            request
+        )
+    }
+
     private suspend fun executeChatRequest(
         conversationId: String,
         assistant: MessageEntity,
@@ -1042,7 +1169,10 @@ class AppViewModel(
             com.example.chatimage
                 .data.repository
                 .ResolvedApiProfile,
-        settings: AppSettings
+        settings: AppSettings,
+        route: RequestRoute,
+        model: String,
+        visionImagePath: String?
     ) {
         val databaseMessages =
             conversationRepository
@@ -1050,25 +1180,102 @@ class AppViewModel(
                     conversationId
                 )
 
+        val currentUserImageDataUrl =
+            if (
+                route == RequestRoute.VISION_CHAT
+            ) {
+                val imagePath = visionImagePath
+                    ?: throw IllegalStateException(
+                        "视觉分析缺少图片"
+                    )
+
+                withContext(Dispatchers.IO) {
+                    ImageFileUtils.fileToBase64(
+                        file = File(imagePath),
+                        includeDataUrlPrefix = true
+                    )
+                }
+            } else {
+                null
+            }
+
         val messages =
             contextManager
                 .buildChatMessages(
                     databaseMessages =
                         databaseMessages,
                     settings = settings,
-                    currentUserText = prompt
+                    currentUserText = prompt,
+                    currentUserImageDataUrl =
+                        currentUserImageDataUrl
                 )
+                .toMutableList()
+
+        val requestApiProfile =
+            if (route == RequestRoute.VISION_CHAT) {
+                apiProfile.copy(
+                    profile = apiProfile.profile.copy(
+                        chatModel = model
+                    )
+                )
+            } else {
+                apiProfile
+            }
+
+        val currentUserMessage = databaseMessages
+            .asReversed()
+            .firstOrNull {
+                it.message.role.equals("user", ignoreCase = true)
+            }
+            ?.message
+
+        currentUserMessage?.attachedFilePath?.let { path ->
+            val prepared = withContext(Dispatchers.IO) {
+                FileAttachmentUtils.prepare(
+                    file = File(path),
+                    fileName = currentUserMessage.attachedFileName
+                        ?: File(path).name,
+                    mimeType = currentUserMessage.attachedFileMimeType.orEmpty(),
+                    allowBinaryInput = requestApiProfile.profile.chatPath
+                        .trimEnd('/')
+                        .endsWith("/responses", ignoreCase = true)
+                )
+            }
+            val userIndex = messages.indexOfLast { it.role == "user" }
+            if (userIndex >= 0) {
+                val wireMessage = messages[userIndex]
+                messages[userIndex] = when (prepared) {
+                    is PreparedFileAttachment.TextContext -> wireMessage.copy(
+                        content = wireMessage.content.orEmpty() +
+                            "\n\n" + prepared.text
+                    )
+
+                    is PreparedFileAttachment.BinaryFile -> wireMessage.copy(
+                        contentParts = listOf(
+                            com.example.chatimage.data.api.ChatContentPart.Text(
+                                wireMessage.content.orEmpty()
+                            ),
+                            com.example.chatimage.data.api.ChatContentPart.InputFile(
+                                prepared.fileName,
+                                prepared.dataUrl
+                            )
+                        )
+                    )
+                }
+            }
+        }
 
         val searchProfile =
             searchProfileRepository
                 .getResolvedActive()
 
-        var accumulatedText = ""
+        val accumulatedText = StringBuilder()
+        var lastPersistAt = 0L
 
         val outcome =
             aiRequestRepository.answerChat(
                 apiProfile =
-                    apiProfile,
+                    requestApiProfile,
                 searchProfile =
                     searchProfile,
                 settings = settings,
@@ -1084,18 +1291,18 @@ class AppViewModel(
                         )
                 },
                 onDelta = { fragment ->
-                    accumulatedText += fragment
+                    accumulatedText.append(fragment)
+                    val now = System.currentTimeMillis()
 
-                    conversationRepository
-                        .updateMessageText(
-                            messageId =
-                                assistant.id,
-                            text =
-                                accumulatedText,
-                            status =
-                                MessageStatus
-                                    .RUNNING
-                        )
+                    if (now - lastPersistAt >= 300L) {
+                        lastPersistAt = now
+                        conversationRepository
+                            .updateMessageText(
+                                messageId = assistant.id,
+                                text = accumulatedText.toString(),
+                                status = MessageStatus.RUNNING
+                            )
+                    }
                 }
             )
 
@@ -1116,7 +1323,7 @@ class AppViewModel(
                 val finalText =
                     outcome.value.content
                         .ifBlank {
-                            accumulatedText
+                            accumulatedText.toString()
                         }
 
                 conversationRepository
@@ -1126,6 +1333,7 @@ class AppViewModel(
                         text = finalText,
                         diagnostics =
                             outcome.diagnostics,
+                        usage = outcome.value.usage,
                         citations =
                             outcome
                                 .value
@@ -1262,6 +1470,13 @@ class AppViewModel(
 
     fun newConversation() {
         viewModelScope.launch {
+            if (
+                _uiState.value.currentConversationId != null &&
+                _uiState.value.messages.isEmpty()
+            ) {
+                return@launch
+            }
+
             stopGeneration()
 
             val created =
@@ -1311,6 +1526,9 @@ class AppViewModel(
                 currentConversation =
                     conversation,
                 attachedImagePath = null,
+                attachedFilePath = null,
+                attachedFileName = null,
+                attachedFileMimeType = null,
                 referencedImagePath = null,
                 referencedImageId = null,
                 globalError = null,
@@ -1504,6 +1722,12 @@ class AppViewModel(
                     selectedRoute = route,
                     attachedImagePath =
                         userMessage.attachedImagePath,
+                    attachedFilePath =
+                        userMessage.attachedFilePath,
+                    attachedFileName =
+                        userMessage.attachedFileName,
+                    attachedFileMimeType =
+                        userMessage.attachedFileMimeType,
                     referencedImagePath =
                         userMessage.referencedImagePath,
                     referencedImageId = null,
@@ -1606,6 +1830,46 @@ class AppViewModel(
                         ?: "保存 API 配置失败"
                 )
             }
+        }
+    }
+
+    fun fetchModels(
+        draftProfile: ApiProfileEntity,
+        draftApiKey: String,
+        onResult: (Result<List<String>>) -> Unit
+    ) {
+        viewModelScope.launch {
+            val normalizedProfile = draftProfile.copy(
+                baseUrl = draftProfile.baseUrl.trim().trimEnd('/')
+            )
+            if (normalizedProfile.baseUrl.isBlank()) {
+                onResult(Result.failure(IllegalStateException("请先填写 Base URL")))
+                return@launch
+            }
+
+            val effectiveKey = draftApiKey
+                .takeIf(String::isNotBlank)
+                ?: apiProfileRepository.resolve(normalizedProfile).apiKey
+            if (
+                effectiveKey.isBlank() &&
+                !normalizedProfile.authenticationMode.equals(
+                    "NONE",
+                    ignoreCase = true
+                )
+            ) {
+                onResult(Result.failure(IllegalStateException("请先填写 API Key")))
+                return@launch
+            }
+
+            onResult(
+                modelsApiClient.fetch(
+                    resolvedProfile = ResolvedApiProfile(
+                        profile = normalizedProfile,
+                        apiKey = effectiveKey
+                    ),
+                    settings = _uiState.value.appSettings
+                )
+            )
         }
     }
 

@@ -176,6 +176,15 @@ data class AppUiState(
     val attachedImagePath:
         String? = null,
 
+    val attachedFilePath:
+        String? = null,
+
+    val attachedFileName:
+        String? = null,
+
+    val attachedFileMimeType:
+        String? = null,
+
     val referencedImagePath:
         String? = null,
 

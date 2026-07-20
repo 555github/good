@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -19,10 +20,13 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.AutoFixHigh
 import androidx.compose.material.icons.filled.Image
+import androidx.compose.material.icons.filled.InsertDriveFile
 import androidx.compose.material.icons.filled.Public
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.AssistChip
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -62,6 +66,10 @@ fun ConversationScreen(
         mutableStateOf("")
     }
 
+    var pendingImageUri by remember {
+        mutableStateOf<Uri?>(null)
+    }
+
     val imagePicker =
         rememberLauncherForActivityResult(
             contract =
@@ -69,30 +77,46 @@ fun ConversationScreen(
                     .GetContent()
         ) { uri: Uri? ->
             uri?.let {
-                viewModel.selectAttachment(it)
+                if (state.selectedRoute == RequestRoute.AUTO) {
+                    pendingImageUri = it
+                } else {
+                    viewModel.selectAttachment(it)
+                }
             }
         }
+
+    val filePicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri: Uri? ->
+        uri?.let(viewModel::selectFileAttachment)
+    }
 
     LaunchedEffect(
         state.messages.size,
         state.messages
             .lastOrNull()
             ?.message
-            ?.text,
-        state.messages
-            .lastOrNull()
-            ?.images
-            ?.size
+            ?.text
+            ?.length
+            ?.div(600),
+        state.messages.lastOrNull()?.images?.size
     ) {
+        val lastIndex = state.messages.lastIndex
+        val lastVisible = listState.layoutInfo
+            .visibleItemsInfo
+            .lastOrNull()
+            ?.index
+            ?: lastIndex
+        val nearBottom = lastVisible >= lastIndex - 1
+
         if (
             state.appSettings
                 .appearance
                 .autoScroll &&
-            state.messages.isNotEmpty()
+            state.messages.isNotEmpty() &&
+            nearBottom
         ) {
-            listState.animateScrollToItem(
-                state.messages.lastIndex
-            )
+            listState.scrollToItem(lastIndex)
         }
     }
 
@@ -114,7 +138,12 @@ fun ConversationScreen(
                     .fillMaxWidth()
                     .padding(horizontal = 10.dp),
                 verticalArrangement =
-                    Arrangement.spacedBy(10.dp)
+                    Arrangement.spacedBy(
+                        state.appSettings.appearance
+                            .messageSpacingDp
+                            .coerceIn(2, 24)
+                            .dp
+                    )
             ) {
                 items(
                     items = state.messages,
@@ -206,7 +235,14 @@ fun ConversationScreen(
             SourceImagePreview(
                 path = path,
                 label =
-                    "已附加图片，将优先进行图生图",
+                    if (
+                        state.selectedRoute ==
+                        RequestRoute.VISION_CHAT
+                    ) {
+                        "已附加图片，将发送给视觉模型"
+                    } else {
+                        "已附加图片，将优先进行图生图"
+                    },
                 onRemove = {
                     viewModel.clearAttachment()
                 }
@@ -226,6 +262,14 @@ fun ConversationScreen(
             )
         }
 
+        state.attachedFilePath?.let { path ->
+            FileAttachmentPreview(
+                path = path,
+                name = state.attachedFileName ?: File(path).name,
+                onRemove = viewModel::clearFileAttachment
+            )
+        }
+
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -239,13 +283,27 @@ fun ConversationScreen(
                         "image/*"
                     )
                 },
-                enabled = !state.loading
+                enabled = !state.loading,
+                modifier = Modifier.size(52.dp)
             ) {
                 Icon(
                     imageVector =
-                        Icons.Default.AttachFile,
+                        Icons.Default.Image,
                     contentDescription =
                         "选择图片"
+                )
+            }
+
+            IconButton(
+                onClick = {
+                    filePicker.launch(arrayOf("*/*"))
+                },
+                enabled = !state.loading,
+                modifier = Modifier.size(52.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.AttachFile,
+                    contentDescription = "选择文件"
                 )
             }
 
@@ -254,7 +312,8 @@ fun ConversationScreen(
                     viewModel
                         .cycleSearchForNextRequest()
                 },
-                enabled = !state.loading
+                enabled = !state.loading,
+                modifier = Modifier.size(52.dp)
             ) {
                 Icon(
                     imageVector =
@@ -281,10 +340,7 @@ fun ConversationScreen(
                 value = input,
                 onValueChange = {
                     input = it
-
-                    if (it.isNotBlank()) {
-                        viewModel.previewRoute(it)
-                    }
+                    viewModel.previewRoute(it)
                 },
                 modifier = Modifier.weight(1f),
                 placeholder = {
@@ -322,7 +378,8 @@ fun ConversationScreen(
                 IconButton(
                     onClick = {
                         viewModel.stopGeneration()
-                    }
+                    },
+                    modifier = Modifier.size(52.dp)
                 ) {
                     Icon(
                         imageVector =
@@ -348,7 +405,8 @@ fun ConversationScreen(
                                     .clearFocus()
                             }
                         }
-                    }
+                    },
+                    modifier = Modifier.size(52.dp)
                 ) {
                     Icon(
                         imageVector =
@@ -359,6 +417,43 @@ fun ConversationScreen(
                 }
             }
         }
+    }
+
+    pendingImageUri?.let { uri ->
+        AlertDialog(
+            onDismissRequest = { pendingImageUri = null },
+            title = { Text("这张图片要用来做什么？") },
+            text = {
+                Text("选择“理解图片”会把图片交给视觉模型分析；选择“编辑图片”会进入图生图。")
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        viewModel.setSelectedRoute(RequestRoute.VISION_CHAT)
+                        viewModel.selectAttachment(uri)
+                        pendingImageUri = null
+                    }
+                ) {
+                    Text("理解图片")
+                }
+            },
+            dismissButton = {
+                Row {
+                    TextButton(
+                        onClick = {
+                            viewModel.setSelectedRoute(RequestRoute.IMAGE_EDIT)
+                            viewModel.selectAttachment(uri)
+                            pendingImageUri = null
+                        }
+                    ) {
+                        Text("编辑图片")
+                    }
+                    TextButton(onClick = { pendingImageUri = null }) {
+                        Text("取消")
+                    }
+                }
+            }
+        )
     }
 }
 
@@ -522,10 +617,66 @@ private fun SourceImagePreview(
     }
 }
 
+@Composable
+private fun FileAttachmentPreview(
+    path: String,
+    name: String,
+    onRemove: () -> Unit
+) {
+    val file = File(path)
+    if (!file.exists()) return
+
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 10.dp, vertical = 3.dp)
+    ) {
+        Row(
+            modifier = Modifier.padding(8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                Icons.Default.InsertDriveFile,
+                contentDescription = null,
+                modifier = Modifier.size(30.dp)
+            )
+            Spacer(Modifier.width(8.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(name, maxLines = 1)
+                Text(
+                    formatFileSize(file.length()),
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+            TextButton(onClick = onRemove) {
+                Text("移除")
+            }
+        }
+    }
+}
+
+private fun formatFileSize(bytes: Long): String {
+    return when {
+        bytes >= 1024L * 1024L ->
+            String.format("%.1f MB", bytes / 1024.0 / 1024.0)
+        bytes >= 1024L ->
+            String.format("%.1f KB", bytes / 1024.0)
+        else -> "$bytes B"
+    }
+}
+
 private fun inputPlaceholder(
     state: AppUiState
 ): String {
     return when {
+        state.attachedFilePath != null ->
+            "输入关于该文件的问题"
+
+        state.attachedImagePath != null &&
+            state.selectedRoute ==
+            RequestRoute.VISION_CHAT ->
+            "输入对这张图片的分析问题"
+
         state.referencedImagePath != null ->
             "描述如何修改这张图片"
 

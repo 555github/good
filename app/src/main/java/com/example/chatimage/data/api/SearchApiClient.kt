@@ -231,6 +231,15 @@ class SearchApiClient(
                 query
             )
 
+        if (
+            profile.providerType.equals("TAVILY", ignoreCase = true) ||
+            profile.baseUrl.contains("tavily", ignoreCase = true)
+        ) {
+            standardJson
+                .put("include_raw_content", true)
+                .put("search_depth", "advanced")
+        }
+
         if (profile.countField.isNotBlank()) {
             standardJson.put(
                 profile.countField,
@@ -385,10 +394,18 @@ class SearchApiClient(
                     profile.resultUrlPath
                 ).orEmpty()
 
-                val snippet = JsonUtils.readString(
-                    resultObject,
-                    profile.resultSnippetPath
-                ).orEmpty()
+                val snippet = listOf(
+                    profile.resultSnippetPath,
+                    "content",
+                    "raw_content",
+                    "snippet"
+                ).distinct()
+                    .firstNotNullOfOrNull { path ->
+                        JsonUtils.readString(resultObject, path)
+                            ?.takeIf(String::isNotBlank)
+                    }
+                    .orEmpty()
+                    .take(8000)
 
                 if (
                     title.isBlank() &&

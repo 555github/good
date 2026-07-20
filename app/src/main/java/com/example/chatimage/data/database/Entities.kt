@@ -68,6 +68,12 @@ data class MessageEntity(
 
     val attachedImagePath: String? = null,
 
+    val attachedFilePath: String? = null,
+
+    val attachedFileName: String? = null,
+
+    val attachedFileMimeType: String? = null,
+
     val referencedImagePath: String? = null,
 
     val status: String = "COMPLETED",
@@ -83,6 +89,14 @@ data class MessageEntity(
     val durationMs: Long? = null,
 
     val model: String? = null,
+
+    val inputTokens: Long? = null,
+
+    val outputTokens: Long? = null,
+
+    val totalTokens: Long? = null,
+
+    val cachedInputTokens: Long? = null,
 
     val apiProfileId: String? = null,
 

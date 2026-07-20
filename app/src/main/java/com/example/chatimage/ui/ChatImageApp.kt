@@ -189,7 +189,10 @@ fun ChatImageApp(
                     IconButton(
                         onClick = {
                             viewModel.newConversation()
-                        }
+                        },
+                        enabled =
+                            state.currentConversationId == null ||
+                                state.messages.isNotEmpty()
                     ) {
                         Icon(
                             imageVector =
@@ -644,7 +647,8 @@ private val routeEntries = listOf(
     RequestRoute.AUTO,
     RequestRoute.CHAT,
     RequestRoute.IMAGE_GENERATION,
-    RequestRoute.IMAGE_EDIT
+    RequestRoute.IMAGE_EDIT,
+    RequestRoute.VISION_CHAT
 )
 
 private fun routeLabel(

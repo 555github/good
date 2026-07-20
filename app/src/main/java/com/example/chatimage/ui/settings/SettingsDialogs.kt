@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
@@ -14,6 +15,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
@@ -30,6 +32,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -47,11 +50,14 @@ import com.example.chatimage.data.model.ImageEditTransport
 import com.example.chatimage.data.model.RetryMode
 import com.example.chatimage.data.model.StreamProtocol
 import com.example.chatimage.data.model.ToolCallMode
+import com.example.chatimage.data.model.ThemeMode
 import com.example.chatimage.data.model.WebSearchMode
+import com.example.chatimage.data.model.WebSearchProvider
 import com.example.chatimage.ui.AppUiState
 import com.example.chatimage.ui.AppViewModel
 import org.json.JSONObject
 import java.util.UUID
+import kotlinx.coroutines.delay
 
 private enum class SettingsSection(
     val displayName: String
@@ -351,8 +357,25 @@ private fun GeneralSettings(
     HorizontalDivider()
     SectionTitle("界面")
 
+    EnumSelector(
+        label = "主题",
+        current = settings.appearance.themeMode.name,
+        values = ThemeMode.entries.map { it.name },
+        onSelect = { selected ->
+            onChange(
+                settings.copy(
+                    appearance = settings.appearance.copy(
+                        themeMode = ThemeMode.valueOf(selected)
+                    )
+                )
+            )
+        }
+    )
+
     DecimalField(
         label = "字体缩放",
+        supportingText = "推荐 1.0；支持 0.7 - 2.0",
+        helpText = "同时缩放聊天消息、设置和按钮文字。系统字体大小仍会继续生效。",
         value =
             settings.appearance
                 .fontScale
@@ -376,6 +399,8 @@ private fun GeneralSettings(
 
     DecimalField(
         label = "用户消息宽度比例",
+        supportingText = "推荐 0.94；支持 0.55 - 0.98",
+        helpText = "控制用户消息气泡占聊天区域的最大宽度，助手消息保持接近全宽。",
         value =
             settings.appearance
                 .messageWidthFraction
@@ -399,6 +424,8 @@ private fun GeneralSettings(
 
     NumberField(
         label = "图片预览高度（dp）",
+        supportingText = "推荐 340；支持 160 - 1000",
+        helpText = "只影响聊天列表中的预览高度，不会改变原图分辨率。",
         value =
             settings.appearance
                 .imagePreviewHeightDp,
@@ -413,6 +440,38 @@ private fun GeneralSettings(
                                     1000
                                 )
                         )
+                )
+            )
+        }
+    )
+
+    NumberField(
+        label = "消息间距（dp）",
+        value = settings.appearance.messageSpacingDp,
+        supportingText = "紧凑 4；推荐 8；宽松 14",
+        helpText = "控制相邻两条消息之间的垂直距离。",
+        onValueChange = {
+            onChange(
+                settings.copy(
+                    appearance = settings.appearance.copy(
+                        messageSpacingDp = it.coerceIn(2, 24)
+                    )
+                )
+            )
+        }
+    )
+
+    NumberField(
+        label = "消息内边距（dp）",
+        value = settings.appearance.messagePaddingDp,
+        supportingText = "紧凑 6；推荐 10；宽松 16",
+        helpText = "控制文字、图片和操作栏与消息气泡边缘的距离。",
+        onValueChange = {
+            onChange(
+                settings.copy(
+                    appearance = settings.appearance.copy(
+                        messagePaddingDp = it.coerceIn(4, 24)
+                    )
                 )
             )
         }
@@ -843,6 +902,63 @@ private fun ChatSettingsSection(
                                     0
                                 )
                         )
+                )
+            )
+        }
+    )
+
+    SwitchRow(
+        title = "请求 Token 用量统计",
+        description = "流式 Chat Completions 会发送 stream_options.include_usage",
+        checked = chat.requestUsage,
+        onCheckedChange = {
+            onChange(
+                settings.copy(
+                    chatParameters = chat.copy(requestUsage = it)
+                )
+            )
+        }
+    )
+
+    HorizontalDivider()
+    SectionTitle("推理强度")
+
+    SwitchRow(
+        title = "发送推理强度参数",
+        description = "不同模型支持的值不同，请按服务商文档填写",
+        checked = chat.reasoningEnabled,
+        onCheckedChange = {
+            onChange(
+                settings.copy(
+                    chatParameters = chat.copy(reasoningEnabled = it)
+                )
+            )
+        }
+    )
+
+    TextFieldSetting(
+        label = "推理强度字段路径",
+        value = chat.reasoningFieldPath,
+        supportingText = "OpenAI Responses 推荐 reasoning.effort",
+        helpText = "支持点分隔的嵌套字段路径，也可以填写中转站要求的自定义字段名。",
+        onValueChange = {
+            onChange(
+                settings.copy(
+                    chatParameters = chat.copy(reasoningFieldPath = it)
+                )
+            )
+        }
+    )
+
+    TextFieldSetting(
+        label = "推理强度值",
+        value = chat.reasoningValue,
+        supportingText = "常见值：none、low、medium、high、xhigh、max",
+        helpText = "此处不限制枚举，方便兼容不同模型和厂商的自定义值。",
+        onValueChange = {
+            onChange(
+                settings.copy(
+                    chatParameters = chat.copy(reasoningValue = it)
                 )
             )
         }
@@ -1866,6 +1982,49 @@ private fun SearchSettingsSection(
                                     search.mode
                                 )
                         )
+                )
+            )
+        }
+    )
+
+    EnumSelector(
+        label = "联网来源",
+        current = search.provider.name,
+        values = WebSearchProvider.entries.map { it.name },
+        displayName = { value ->
+            when (value) {
+                WebSearchProvider.AUTO.name ->
+                    "自动（Responses 内置优先）"
+
+                else -> enumDisplayName(value)
+            }
+        },
+        onSelect = {
+            onChange(
+                settings.copy(
+                    search = search.copy(
+                        provider = enumValueOrDefault(it, search.provider)
+                    )
+                )
+            )
+        }
+    )
+
+    Text(
+        text = "自动模式下，/responses 优先使用模型内置联网，不需要第三方搜索 API；其他接口使用已配置的第三方搜索。",
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant
+    )
+
+    TextFieldSetting(
+        label = "模型内置联网工具类型",
+        value = search.builtInToolType,
+        supportingText = "OpenAI Responses 使用 web_search",
+        helpText = "仅在联网来源选择 MODEL_BUILT_IN 且线路使用 /responses 时发送。",
+        onValueChange = {
+            onChange(
+                settings.copy(
+                    search = search.copy(builtInToolType = it)
                 )
             )
         }
@@ -3053,6 +3212,7 @@ fun ApiProfilesDialog(
     if (creating) {
         ApiProfileEditor(
             profile = null,
+            onFetchModels = viewModel::fetchModels,
             onSave = { profile, key ->
                 /*
                  * 使用 saveApiProfile 保存整个实体，
@@ -3074,6 +3234,7 @@ fun ApiProfilesDialog(
     editingProfile?.let { profile ->
         ApiProfileEditor(
             profile = profile,
+            onFetchModels = viewModel::fetchModels,
             onSave = { updated, key ->
                 viewModel.saveApiProfile(
                     updated,
@@ -3092,14 +3253,19 @@ fun ApiProfilesDialog(
 @Composable
 private fun ApiProfileEditor(
     profile: ApiProfileEntity?,
+    onFetchModels: (
+        ApiProfileEntity,
+        String,
+        (Result<List<String>>) -> Unit
+    ) -> Unit,
     onSave: (
         ApiProfileEntity,
         String?
     ) -> Unit,
     onDismiss: () -> Unit
 ) {
-    val base = profile
-        ?: ApiProfileEntity(
+    val base = remember(profile?.id) {
+        profile ?: ApiProfileEntity(
             id = UUID.randomUUID().toString(),
             name = "新线路",
             baseUrl = "",
@@ -3107,14 +3273,22 @@ private fun ApiProfileEditor(
             chatModel = "",
             imageModel = ""
         )
+    }
 
     var draft by remember(base) {
         mutableStateOf(base)
     }
 
-    var apiKey by remember {
+    var apiKey by remember(base.id) {
         mutableStateOf("")
     }
+
+    var availableModels by remember(base.id) {
+        mutableStateOf<List<String>>(emptyList())
+    }
+
+    var fetchingModels by remember { mutableStateOf(false) }
+    var modelFetchError by remember { mutableStateOf<String?>(null) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -3181,6 +3355,58 @@ private fun ApiProfileEditor(
                     singleLine = true
                 )
 
+                OutlinedButton(
+                    onClick = {
+                        fetchingModels = true
+                        modelFetchError = null
+                        onFetchModels(draft, apiKey) { result ->
+                            fetchingModels = false
+                            result.onSuccess { availableModels = it }
+                                .onFailure {
+                                    modelFetchError = it.message ?: "获取模型列表失败"
+                                }
+                        }
+                    },
+                    enabled =
+                        draft.baseUrl.isNotBlank() &&
+                            !fetchingModels,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(
+                        when {
+                            fetchingModels -> "正在获取模型..."
+                            availableModels.isNotEmpty() ->
+                                "已获取 ${availableModels.size} 个模型，点击刷新"
+                            else -> "一键获取模型列表"
+                        }
+                    )
+                }
+
+                modelFetchError?.let {
+                    Text(it, color = MaterialTheme.colorScheme.error)
+                }
+
+                if (availableModels.isNotEmpty()) {
+                    EnumSelector(
+                        label = "从列表选择聊天模型",
+                        current = draft.chatModel,
+                        values = availableModels,
+                        onSelect = { draft = draft.copy(chatModel = it) }
+                    )
+                    EnumSelector(
+                        label = "从列表选择视觉模型",
+                        current = draft.visionModel,
+                        values = availableModels,
+                        onSelect = { draft = draft.copy(visionModel = it) }
+                    )
+                    EnumSelector(
+                        label = "从列表选择图片模型",
+                        current = draft.imageModel,
+                        values = availableModels,
+                        onSelect = { draft = draft.copy(imageModel = it) }
+                    )
+                }
+
                 TextFieldSetting(
                     label = "聊天模型",
                     value = draft.chatModel,
@@ -3230,9 +3456,32 @@ private fun ApiProfileEditor(
                 HorizontalDivider()
                 SectionTitle("接口路径")
 
+                EnumSelector(
+                    label = "聊天请求格式",
+                    current = if (
+                        draft.chatPath.trimEnd('/').endsWith("/responses", true)
+                    ) {
+                        "RESPONSES"
+                    } else {
+                        "CHAT_COMPLETIONS"
+                    },
+                    values = listOf("CHAT_COMPLETIONS", "RESPONSES"),
+                    onSelect = { format ->
+                        draft = draft.copy(
+                            chatPath = if (format == "RESPONSES") {
+                                "/responses"
+                            } else {
+                                "/chat/completions"
+                            }
+                        )
+                    }
+                )
+
                 TextFieldSetting(
                     label = "聊天接口",
                     value = draft.chatPath,
+                    supportingText = "支持 /chat/completions 或 /responses，也可填写完整地址",
+                    helpText = "Responses 使用独立请求和流式事件解析，并支持模型内置工具。",
                     onValueChange = {
                         draft =
                             draft.copy(
@@ -4012,6 +4261,7 @@ private fun TextFieldSetting(
     label: String,
     value: String,
     supportingText: String = "",
+    helpText: String = "",
     onValueChange: (String) -> Unit
 ) {
     OutlinedTextField(
@@ -4021,6 +4271,9 @@ private fun TextFieldSetting(
         modifier = Modifier.fillMaxWidth(),
         label = {
             Text(label)
+        },
+        trailingIcon = helpText.takeIf(String::isNotBlank)?.let {
+            { ParameterHelpButton(label, it) }
         },
         supportingText =
             if (supportingText.isBlank()) {
@@ -4067,28 +4320,46 @@ private fun NumberField(
     label: String,
     value: Int,
     supportingText: String = "",
+    helpText: String = "",
     onValueChange: (Int) -> Unit
 ) {
-    OutlinedTextField(
-        value = value.toString(),
-        onValueChange = {
-            val parsed =
-                it.filter { character ->
-                    character.isDigit()
-                }.toIntOrNull()
+    var text by remember { mutableStateOf(value.toString()) }
+    var validationMessage by remember { mutableStateOf<String?>(null) }
 
-            if (parsed != null) {
-                onValueChange(parsed)
-            } else if (it.isBlank()) {
-                onValueChange(0)
-            }
+    LaunchedEffect(text) {
+        delay(450)
+        text.toIntOrNull()?.let(onValueChange)
+    }
+
+    LaunchedEffect(value) {
+        val entered = text.toIntOrNull()
+        if (entered != null && entered != value) {
+            validationMessage = "输入值 $entered 不受支持，已修正为 $value"
+            text = value.toString()
+        } else if (entered == value) {
+            validationMessage = null
+        }
+    }
+
+    OutlinedTextField(
+        value = text,
+        onValueChange = { newText ->
+            text = newText.filter(Char::isDigit)
         },
         modifier = Modifier.fillMaxWidth(),
         label = {
             Text(label)
         },
+        trailingIcon = helpText.takeIf(String::isNotBlank)?.let {
+            { ParameterHelpButton(label, it) }
+        },
+        isError = text.isBlank(),
         supportingText =
-            if (supportingText.isBlank()) {
+            if (text.isBlank()) {
+                { Text("请输入数字；清空时不会自动恢复默认值") }
+            } else if (validationMessage != null) {
+                { Text(validationMessage.orEmpty()) }
+            } else if (supportingText.isBlank()) {
                 null
             } else {
                 {
@@ -4109,10 +4380,27 @@ private fun LongField(
     label: String,
     value: Long,
     supportingText: String = "",
+    helpText: String = "",
     onValueChange: (Long) -> Unit
 ) {
-    var text by remember(value) {
+    var text by remember {
         mutableStateOf(value.toString())
+    }
+    var validationMessage by remember { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(text) {
+        delay(450)
+        text.toLongOrNull()?.let(onValueChange)
+    }
+
+    LaunchedEffect(value) {
+        val entered = text.toLongOrNull()
+        if (entered != null && entered != value) {
+            validationMessage = "输入值 $entered 不受支持，已修正为 $value"
+            text = value.toString()
+        } else if (entered == value) {
+            validationMessage = null
+        }
     }
 
     OutlinedTextField(
@@ -4128,19 +4416,20 @@ private fun LongField(
 
             text = filtered
 
-            filtered.toLongOrNull()?.let {
-                onValueChange(it)
-            }
-
-            if (filtered.isBlank()) {
-                onValueChange(0L)
-            }
         },
         modifier = Modifier.fillMaxWidth(),
         label = {
             Text(label)
         },
-        supportingText = if (supportingText.isBlank()) {
+        trailingIcon = helpText.takeIf(String::isNotBlank)?.let {
+            { ParameterHelpButton(label, it) }
+        },
+        isError = text.isBlank() || text == "-",
+        supportingText = if (text.isBlank() || text == "-") {
+            { Text("请输入数字；清空时不会自动恢复默认值") }
+        } else if (validationMessage != null) {
+            { Text(validationMessage.orEmpty()) }
+        } else if (supportingText.isBlank()) {
             null
         } else {
             {
@@ -4159,6 +4448,7 @@ private fun DecimalField(
     label: String,
     value: Double,
     supportingText: String = "",
+    helpText: String = "",
     onValueChange: (Double) -> Unit
 ) {
     var text by remember(value) {
@@ -4185,6 +4475,10 @@ private fun DecimalField(
         label = {
             Text(label)
         },
+        trailingIcon = helpText.takeIf(String::isNotBlank)?.let {
+            { ParameterHelpButton(label, it) }
+        },
+        isError = text.isBlank() || text == "-" || text == ".",
         supportingText = if (supportingText.isBlank()) {
             null
         } else {
@@ -4197,6 +4491,38 @@ private fun DecimalField(
         ),
         singleLine = true
     )
+}
+
+@Composable
+private fun ParameterHelpButton(
+    title: String,
+    helpText: String
+) {
+    var showHelp by remember { mutableStateOf(false) }
+
+    IconButton(
+        onClick = { showHelp = true },
+        modifier = Modifier.size(28.dp)
+    ) {
+        Icon(
+            imageVector = Icons.Outlined.Info,
+            contentDescription = "查看${title}说明",
+            modifier = Modifier.size(15.dp)
+        )
+    }
+
+    if (showHelp) {
+        AlertDialog(
+            onDismissRequest = { showHelp = false },
+            title = { Text(title) },
+            text = { Text(helpText) },
+            confirmButton = {
+                TextButton(onClick = { showHelp = false }) {
+                    Text("知道了")
+                }
+            }
+        )
+    }
 }
 
 @Composable
@@ -4232,6 +4558,7 @@ private fun EnumSelector(
     label: String,
     current: String,
     values: List<String>,
+    displayName: (String) -> String = ::enumDisplayName,
     onSelect: (String) -> Unit
 ) {
     var expanded by remember {
@@ -4260,9 +4587,9 @@ private fun EnumSelector(
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Text(
-                    text = current.ifBlank {
-                        "请选择"
-                    },
+                    text = current.takeIf(String::isNotBlank)
+                        ?.let(displayName)
+                        ?: "请选择",
                     modifier = Modifier.weight(1f)
                 )
 
@@ -4278,7 +4605,7 @@ private fun EnumSelector(
                 values.distinct().forEach { value ->
                     DropdownMenuItem(
                         text = {
-                            Text(value)
+                            Text(displayName(value))
                         },
                         onClick = {
                             onSelect(value)
@@ -4288,6 +4615,24 @@ private fun EnumSelector(
                 }
             }
         }
+    }
+}
+
+private fun enumDisplayName(value: String): String {
+    return when (value) {
+        "SYSTEM" -> "跟随系统"
+        "LIGHT" -> "浅色"
+        "DARK" -> "深色"
+        "AUTO" -> "自动"
+        "THIRD_PARTY" -> "第三方搜索 API"
+        "MODEL_BUILT_IN" -> "模型内置工具"
+        "CHAT_COMPLETIONS" -> "Chat Completions"
+        "RESPONSES" -> "Responses"
+        "OFF" -> "关闭"
+        "ALWAYS" -> "始终开启"
+        "DISABLED" -> "关闭"
+        "OPENAI_TOOLS" -> "兼容 Tool Calls"
+        else -> value
     }
 }
 

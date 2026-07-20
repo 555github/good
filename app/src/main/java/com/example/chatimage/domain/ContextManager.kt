@@ -1,6 +1,7 @@
 package com.example.chatimage.domain
 
 import com.example.chatimage.data.api.ChatWireMessage
+import com.example.chatimage.data.api.ChatContentPart
 import com.example.chatimage.data.database.MessageWithImages
 import com.example.chatimage.data.model.AppSettings
 import com.example.chatimage.data.model.MessageStatus
@@ -11,7 +12,8 @@ class ContextManager {
         databaseMessages:
             List<MessageWithImages>,
         settings: AppSettings,
-        currentUserText: String? = null
+        currentUserText: String? = null,
+        currentUserImageDataUrl: String? = null
     ): List<ChatWireMessage> {
         val chatSettings =
             settings.chatParameters
@@ -74,6 +76,33 @@ class ContextManager {
                         role = "user",
                         content =
                             currentUserText
+                    )
+            }
+        }
+
+        if (!currentUserImageDataUrl.isNullOrBlank()) {
+            val currentUserIndex = validMessages
+                .indexOfLast {
+                    it.role == "user" &&
+                        it.content == currentUserText
+                }
+
+            if (currentUserIndex >= 0) {
+                val currentUserMessage =
+                    validMessages[currentUserIndex]
+
+                validMessages[currentUserIndex] =
+                    currentUserMessage.copy(
+                        contentParts = listOf(
+                            ChatContentPart.Text(
+                                currentUserMessage
+                                    .content
+                                    .orEmpty()
+                            ),
+                            ChatContentPart.ImageUrl(
+                                currentUserImageDataUrl
+                            )
+                        )
                     )
             }
         }
@@ -142,9 +171,7 @@ class ContextManager {
         messages: List<ChatWireMessage>
     ): Int {
         return messages.sumOf {
-            estimateTokens(
-                it.content.orEmpty()
-            ) + 4
+            estimateMessageTokens(it)
         }
     }
 
@@ -163,9 +190,7 @@ class ContextManager {
 
         for (message in messages.asReversed()) {
             val messageTokens =
-                estimateTokens(
-                    message.content.orEmpty()
-                ) + 4
+                estimateMessageTokens(message)
 
             if (
                 selected.isNotEmpty() &&
@@ -185,6 +210,19 @@ class ContextManager {
 
         return selected
             .asReversed()
+    }
+
+    private fun estimateMessageTokens(
+        message: ChatWireMessage
+    ): Int {
+        val imageTokens = message.contentParts
+            .count {
+                it is ChatContentPart.ImageUrl
+            } * APPROXIMATE_IMAGE_TOKENS
+
+        return estimateTokens(
+            message.content.orEmpty()
+        ) + imageTokens + 4
     }
 
     private fun isCjk(
@@ -210,5 +248,9 @@ class ContextManager {
             Character.UnicodeBlock.KATAKANA ||
             block ==
             Character.UnicodeBlock.HANGUL_SYLLABLES
+    }
+
+    private companion object {
+        const val APPROXIMATE_IMAGE_TOKENS = 1024
     }
 }

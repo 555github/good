@@ -136,6 +136,28 @@ object JsonUtils {
             as? JSONArray
     }
 
+    fun putObjectPath(
+        root: JSONObject,
+        path: String,
+        value: Any
+    ) {
+        val keys = path
+            .split('.')
+            .map(String::trim)
+            .filter(String::isNotBlank)
+
+        if (keys.isEmpty()) return
+
+        var current = root
+        keys.dropLast(1).forEach { key ->
+            val child = current.optJSONObject(key) ?: JSONObject().also {
+                current.put(key, it)
+            }
+            current = child
+        }
+        current.put(keys.last(), value)
+    }
+
     fun firstNonBlankString(
         root: Any?,
         paths: List<String>
