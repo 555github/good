@@ -20,20 +20,27 @@ import com.example.chatimage.data.database.MessageImageEntity
 import com.example.chatimage.data.database.SearchProfileEntity
 import com.example.chatimage.data.work.ImageGenerationWorker
 import com.example.chatimage.data.model.AppSettings
+import com.example.chatimage.data.model.AppearanceSettings
 import com.example.chatimage.data.model.MessageStatus
 import com.example.chatimage.data.model.RequestError
 import com.example.chatimage.data.model.RequestRoute
 import com.example.chatimage.data.model.RouteDecision
 import com.example.chatimage.data.model.WebSearchMode
+import com.example.chatimage.data.repository.ResolvedApiProfile
 import com.example.chatimage.util.ImageFileUtils
 import com.example.chatimage.util.FileAttachmentUtils
 import com.example.chatimage.util.PreparedFileAttachment
 import java.io.File
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.Dispatchers
@@ -90,6 +97,15 @@ class AppViewModel(
     val uiState =
         _uiState.asStateFlow()
 
+    val appearance = uiState
+        .map { it.appSettings.appearance }
+        .distinctUntilChanged()
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5_000),
+            initialValue = AppearanceSettings()
+        )
+
     private var conversationsJob:
         Job? = null
 
@@ -106,6 +122,9 @@ class AppViewModel(
         Job? = null
 
     private var requestJob:
+        Job? = null
+
+    private var routePreviewJob:
         Job? = null
 
     init {
@@ -302,6 +321,7 @@ class AppViewModel(
     fun setSelectedRoute(
         route: RequestRoute
     ) {
+        routePreviewJob?.cancel()
         _uiState.value =
             _uiState.value.copy(
                 selectedRoute = route,
@@ -334,7 +354,17 @@ class AppViewModel(
     fun previewRoute(
         prompt: String
     ) {
-        viewModelScope.launch {
+        routePreviewJob?.cancel()
+
+        if (prompt.isBlank()) {
+            _uiState.value = _uiState.value.copy(
+                routePreview = null
+            )
+            return
+        }
+
+        routePreviewJob = viewModelScope.launch {
+            delay(180L)
             val state = _uiState.value
             val conversationId =
                 state.currentConversationId
@@ -450,6 +480,7 @@ class AppViewModel(
     fun send(
         prompt: String
     ) {
+        routePreviewJob?.cancel()
         val cleanPrompt =
             prompt.trim()
 
@@ -1263,7 +1294,7 @@ class AppViewModel(
                     accumulatedText.append(fragment)
                     val now = System.currentTimeMillis()
 
-                    if (now - lastPersistAt >= 120L) {
+                    if (now - lastPersistAt >= 300L) {
                         lastPersistAt = now
                         conversationRepository
                             .updateMessageText(
@@ -1803,19 +1834,39 @@ class AppViewModel(
     }
 
     fun fetchModels(
-        profileId: String,
+        draftProfile: ApiProfileEntity,
+        draftApiKey: String,
         onResult: (Result<List<String>>) -> Unit
     ) {
         viewModelScope.launch {
-            val profile = apiProfileRepository.resolveById(profileId)
-            if (profile == null) {
-                onResult(Result.failure(IllegalStateException("请先保存 API 线路")))
+            val normalizedProfile = draftProfile.copy(
+                baseUrl = draftProfile.baseUrl.trim().trimEnd('/')
+            )
+            if (normalizedProfile.baseUrl.isBlank()) {
+                onResult(Result.failure(IllegalStateException("请先填写 Base URL")))
+                return@launch
+            }
+
+            val effectiveKey = draftApiKey
+                .takeIf(String::isNotBlank)
+                ?: apiProfileRepository.resolve(normalizedProfile).apiKey
+            if (
+                effectiveKey.isBlank() &&
+                !normalizedProfile.authenticationMode.equals(
+                    "NONE",
+                    ignoreCase = true
+                )
+            ) {
+                onResult(Result.failure(IllegalStateException("请先填写 API Key")))
                 return@launch
             }
 
             onResult(
                 modelsApiClient.fetch(
-                    resolvedProfile = profile,
+                    resolvedProfile = ResolvedApiProfile(
+                        profile = normalizedProfile,
+                        apiKey = effectiveKey
+                    ),
                     settings = _uiState.value.appSettings
                 )
             )

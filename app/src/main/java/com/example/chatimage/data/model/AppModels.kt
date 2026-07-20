@@ -269,11 +269,18 @@ data class ImageIntentSettings(
 
     val generationKeywords: List<String> = listOf(
         "生成图片",
+        "生成图像",
         "画一张",
         "绘制",
         "创建图片",
         "创建海报",
-        "文生图"
+        "文生图",
+        "来一张",
+        "给我一张",
+        "帮我画",
+        "出一张",
+        "制作海报",
+        "设计海报"
     ),
 
     val editKeywords: List<String> = listOf(

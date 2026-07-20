@@ -29,7 +29,7 @@ class ImageGenerationWorker(
             ?: return Result.failure()
         val userMessageId = inputData.getString(KEY_USER_MESSAGE_ID)
             ?: return Result.failure()
-        setForeground(createForegroundInfo())
+        trySetForeground()
 
         val container = (applicationContext as ChatImageApplication).container
         val repository = container.conversationRepository
@@ -137,6 +137,17 @@ class ImageGenerationWorker(
             )
         )
         return Result.failure()
+    }
+
+    private suspend fun trySetForeground() {
+        try {
+            setForeground(createForegroundInfo())
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            // Some Android versions reject foreground-service startup. WorkManager
+            // can still run and persist this task as regular constrained work.
+        }
     }
 
     private fun createForegroundInfo(): ForegroundInfo {

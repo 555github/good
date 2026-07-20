@@ -144,10 +144,35 @@ class IntentRouter {
             )
         }
 
+        val visualObject = visualObjectKeywords
+            .firstOrNull {
+                cleanPrompt.contains(it, ignoreCase = true)
+            }
+
+        val explicitImageRequest = explicitImageRequestPrefixes
+            .any {
+                cleanPrompt.startsWith(it, ignoreCase = true)
+            }
+
+        if (
+            isImageKnowledgeQuestion(
+                prompt = cleanPrompt,
+                hasVisualObject = visualObject != null,
+                explicitImageRequest = explicitImageRequest
+            )
+        ) {
+            return RouteDecision(
+                route = RequestRoute.CHAT,
+                reason = "识别为图片、模型或 API 相关问题",
+                requiresConfirmation = false
+            )
+        }
+
         val editKeyword =
-            imageIntent.editKeywords
+            (imageIntent.editKeywords + builtInEditKeywords)
+                .distinct()
                 .firstOrNull {
-                    cleanPrompt.contains(
+                    it.isNotBlank() && cleanPrompt.contains(
                         it,
                         ignoreCase = true
                     )
@@ -164,20 +189,40 @@ class IntentRouter {
                 }
 
         val generationKeyword =
-            imageIntent
-                .generationKeywords
+            (imageIntent.generationKeywords + builtInGenerationKeywords)
+                .distinct()
                 .firstOrNull {
-                    cleanPrompt.contains(
+                    it.isNotBlank() && cleanPrompt.contains(
                         it,
                         ignoreCase = true
                     )
                 }
+
+        val generationAction = generationActionKeywords
+            .firstOrNull {
+                cleanPrompt.contains(it, ignoreCase = true)
+            }
+
+        val hasGenerationIntent =
+            generationKeyword != null ||
+                generationAction != null && visualObject != null ||
+                explicitImageRequest &&
+                (
+                    generationAction != null ||
+                        visualObject != null ||
+                        cleanPrompt.contains("画")
+                    )
 
         /*
          * 同时存在图片编辑词和上文图片时，优先图生图。
          */
         if (
             editKeyword != null &&
+            (visualObject != null ||
+                recentImageKeyword != null ||
+                builtInVisualEditKeywords.any {
+                    cleanPrompt.contains(it, ignoreCase = true)
+                }) &&
             !latestGeneratedImagePath
                 .isNullOrBlank() &&
             imageIntent
@@ -196,35 +241,12 @@ class IntentRouter {
             )
         }
 
-        /*
-         * “上图、刚才图片、上一张”等明确引用也优先编辑。
-         */
-        if (
-            recentImageKeyword != null &&
-            !latestGeneratedImagePath
-                .isNullOrBlank() &&
-            imageIntent
-                .autoReferenceRecentImage
-        ) {
-            return RouteDecision(
-                route =
-                    RequestRoute.IMAGE_EDIT,
-                reason =
-                    "识别到上文图片引用“$recentImageKeyword”",
-                sourceImagePath =
-                    latestGeneratedImagePath,
-                requiresConfirmation =
-                    imageIntent
-                        .showSourceImageBeforeSend
-            )
-        }
-
-        if (generationKeyword != null) {
+        if (hasGenerationIntent) {
             return RouteDecision(
                 route =
                     RequestRoute.IMAGE_GENERATION,
                 reason =
-                    "识别到图片生成词“$generationKeyword”",
+                    "识别到图片生成请求“${generationKeyword ?: generationAction ?: visualObject ?: "绘画"}”",
                 requiresConfirmation = false
             )
         }
@@ -233,7 +255,13 @@ class IntentRouter {
          * 存在编辑指令但没有可编辑图片时，不擅自执行文生图，
          * 由界面提示用户选择图片。
          */
-        if (editKeyword != null) {
+        if (
+            editKeyword != null &&
+            (visualObject != null ||
+                builtInVisualEditKeywords.any {
+                    cleanPrompt.contains(it, ignoreCase = true)
+                })
+        ) {
             return RouteDecision(
                 route =
                     RequestRoute.IMAGE_EDIT,
@@ -249,6 +277,30 @@ class IntentRouter {
             reason = "未识别到图片生成或编辑意图",
             requiresConfirmation = false
         )
+    }
+
+    private fun isImageKnowledgeQuestion(
+        prompt: String,
+        hasVisualObject: Boolean,
+        explicitImageRequest: Boolean
+    ): Boolean {
+        val hasImageTopic = hasVisualObject ||
+            imageTopicKeywords.any {
+                prompt.contains(it, ignoreCase = true)
+            }
+        if (!hasImageTopic) {
+            return false
+        }
+
+        val startsAsQuestion = questionPrefixes.any {
+            prompt.startsWith(it, ignoreCase = true)
+        }
+        val hasTechnicalTopic = technicalQuestionKeywords.any {
+            prompt.contains(it, ignoreCase = true)
+        }
+
+        return startsAsQuestion ||
+            hasTechnicalTopic && !explicitImageRequest
     }
 
     fun shouldSearch(
@@ -299,5 +351,63 @@ class IntentRouter {
             com.example.chatimage
                 .data.model
                 .ToolCallMode.DISABLED
+    }
+
+    private companion object {
+        val builtInGenerationKeywords = listOf(
+            "生成图片", "生成图像", "画一张", "绘制一张",
+            "来一张", "给我一张", "帮我画", "出一张",
+            "制作海报", "设计海报", "创建插画"
+        )
+
+        val generationActionKeywords = listOf(
+            "生成", "绘制", "创作", "设计", "制作",
+            "创建", "做一张", "来一张", "出一张"
+        )
+
+        val visualObjectKeywords = listOf(
+            "图片", "图像", "照片", "海报", "插画", "壁纸",
+            "头像", "封面", "logo", "图标", "表情包", "画面",
+            "漫画", "油画", "水彩画", "素描", "流程图", "效果图",
+            "渲染图", "背景", "前景", "构图"
+        )
+
+        val explicitImageRequestPrefixes = listOf(
+            "请帮我画", "请帮我绘制", "请帮我生成一张", "请帮我做一张",
+            "帮我画", "帮我绘制", "帮我生成一张", "帮我做一张",
+            "给我画", "给我绘制", "给我生成一张", "给我一张",
+            "为我画", "替我画", "我想要一张", "我想画", "想画",
+            "请画", "请绘制", "请生成一张", "请生成一幅", "请生成一只",
+            "来一张", "出一张", "画一", "画个", "绘制一", "生成一张",
+            "生成一幅", "生成一只", "制作一张", "设计一张", "创建一张",
+            "做一张"
+        )
+
+        val imageTopicKeywords = listOf(
+            "文生图", "图生图", "生图", "图片生成", "图像生成"
+        )
+
+        val questionPrefixes = listOf(
+            "怎么", "如何", "怎样", "为什么", "什么", "哪些",
+            "是否", "能否", "能不能", "可不可以", "介绍", "解释"
+        )
+
+        val technicalQuestionKeywords = listOf(
+            "api", "接口", "模型", "参数", "教程", "文档", "调用",
+            "原理", "区别", "支持哪些", "有哪些", "怎么用", "如何用",
+            "代码", "函数", "程序", "算法", "报错", "失败", "无法",
+            "不能", "技巧"
+        )
+
+        val builtInEditKeywords = listOf(
+            "换成", "改成", "添加", "去掉", "移除", "擦除",
+            "扩图", "局部重绘", "裁剪", "调亮", "调暗", "增强"
+        )
+
+        val builtInVisualEditKeywords = listOf(
+            "换背景", "改风格", "删除画面", "增加画面", "调整颜色",
+            "继续编辑", "换成", "改成", "扩图", "局部重绘", "裁剪",
+            "调亮", "调暗"
+        )
     }
 }

@@ -98,7 +98,7 @@ fun ConversationScreen(
             ?.message
             ?.text
             ?.length
-            ?.div(240),
+            ?.div(600),
         state.messages.lastOrNull()?.images?.size
     ) {
         val lastIndex = state.messages.lastIndex
@@ -340,10 +340,7 @@ fun ConversationScreen(
                 value = input,
                 onValueChange = {
                     input = it
-
-                    if (it.isNotBlank()) {
-                        viewModel.previewRoute(it)
-                    }
+                    viewModel.previewRoute(it)
                 },
                 modifier = Modifier.weight(1f),
                 placeholder = {

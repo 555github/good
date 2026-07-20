@@ -60,6 +60,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -296,8 +297,12 @@ private fun MessageAvatar(isUser: Boolean) {
 
 @Composable
 private fun MessageTextContent(text: String) {
+    val blocks = remember(text) {
+        parseMessageTextBlocks(text)
+    }
+
     Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
-        parseMessageTextBlocks(text).forEach { block ->
+        blocks.forEach { block ->
             when (block) {
                 is MessageTextBlock.Paragraph -> {
                     if (block.text.isNotEmpty()) {
@@ -392,10 +397,10 @@ private fun MessageMetadata(
     if (text.isNotBlank()) {
         Text(
             text = text,
-            modifier = Modifier.horizontalScroll(rememberScrollState()),
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-            maxLines = 1
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
         )
     }
 }
@@ -410,9 +415,7 @@ private fun CompactMessageActions(
     onDelete: () -> Unit
 ) {
     Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .horizontalScroll(rememberScrollState()),
+        modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.End
     ) {
         if (appearance.showCopyButton && model.hasText) {
@@ -443,9 +446,7 @@ private fun CompactImageActions(
     onRegenerate: () -> Unit
 ) {
     Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .horizontalScroll(rememberScrollState()),
+        modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.End
     ) {
         SmallActionButton(Icons.Default.ZoomIn, "全屏查看", onView)

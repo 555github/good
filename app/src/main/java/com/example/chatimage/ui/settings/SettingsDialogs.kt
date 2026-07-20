@@ -3240,6 +3240,7 @@ fun ApiProfilesDialog(
 private fun ApiProfileEditor(
     profile: ApiProfileEntity?,
     onFetchModels: (
+        ApiProfileEntity,
         String,
         (Result<List<String>>) -> Unit
     ) -> Unit,
@@ -3249,8 +3250,8 @@ private fun ApiProfileEditor(
     ) -> Unit,
     onDismiss: () -> Unit
 ) {
-    val base = profile
-        ?: ApiProfileEntity(
+    val base = remember(profile?.id) {
+        profile ?: ApiProfileEntity(
             id = UUID.randomUUID().toString(),
             name = "新线路",
             baseUrl = "",
@@ -3258,12 +3259,13 @@ private fun ApiProfileEditor(
             chatModel = "",
             imageModel = ""
         )
+    }
 
     var draft by remember(base) {
         mutableStateOf(base)
     }
 
-    var apiKey by remember {
+    var apiKey by remember(base.id) {
         mutableStateOf("")
     }
 
@@ -3343,7 +3345,7 @@ private fun ApiProfileEditor(
                     onClick = {
                         fetchingModels = true
                         modelFetchError = null
-                        onFetchModels(base.id) { result ->
+                        onFetchModels(draft, apiKey) { result ->
                             fetchingModels = false
                             result.onSuccess { availableModels = it }
                                 .onFailure {
@@ -3351,7 +3353,9 @@ private fun ApiProfileEditor(
                                 }
                         }
                     },
-                    enabled = profile != null && !fetchingModels,
+                    enabled =
+                        draft.baseUrl.isNotBlank() &&
+                            !fetchingModels,
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Text(
@@ -3359,7 +3363,6 @@ private fun ApiProfileEditor(
                             fetchingModels -> "正在获取模型..."
                             availableModels.isNotEmpty() ->
                                 "已获取 ${availableModels.size} 个模型，点击刷新"
-                            profile == null -> "保存线路后可获取模型列表"
                             else -> "一键获取模型列表"
                         }
                     )
